@@ -27,9 +27,18 @@ export async function fetchPage(db, collection, offset, limit) {
 }
 
 /**
+ * 聚合输出上限（★ 实测踩过的坑）：CloudBase `aggregate().end()` **默认只返回 20 行**，
+ * 且**不报错、不提示**。本端点的 counts 是「按朝代值分桶」，桶数一旦超过 20
+ * （15 类契约 + 库内旧值 + 未来新增值）就会**静默丢桶** ⇒ 必须显式 `.limit()` 抬高上限。
+ * 1000 远大于值域实际基数（当前 1 个非空值 + 1 个空值桶）。
+ */
+const AGG_BUCKET_LIMIT = 1000
+
+/**
  * 按字段聚合计数：返回 { counts: {值:条数}, unrecorded:空值条数 }。
  * 空值（null / undefined / 空串）计入 unrecorded，不进 counts；
  * 非空值**原样读出**（含库内旧值，R-21 口径：不归一、不改写）。
+ * 输入侧不限量（实测：1742 行集合的单桶聚合 sum 恒等于 count()，聚合全量参与）。
  */
 export async function countByField(db, collection, field) {
   const $ = db.command.aggregate
@@ -37,8 +46,13 @@ export async function countByField(db, collection, field) {
     .collection(collection)
     .aggregate()
     .group({ _id: `$${field}`, n: $.sum(1) })
+    .limit(AGG_BUCKET_LIMIT)
     .end()
   const rows = Array.isArray(res.data) ? res.data : []
+  if (rows.length >= AGG_BUCKET_LIMIT) {
+    // 触到上限即可能截断：只记服务端日志，不改写对外数据（宁可如实少、也不编造）
+    console.warn(`[api] aggregate bucket limit reached on ${collection}.${field} (${rows.length})`)
+  }
   const counts = {}
   let unrecorded = 0
   for (const row of rows) {
