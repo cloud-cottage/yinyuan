@@ -17,6 +17,7 @@
     "smoke": "node scripts/build-smoke.mjs"
   },
   "dependencies": {
+    "@cloudbase/node-sdk": "^3.18.3",
     "vue": "3.5.43",
     "vue-router": "4.6.4"
   },

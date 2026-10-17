@@ -13,6 +13,6 @@
     { "source": "/demo", "destination": "/index.html" },
     { "source": "/help", "destination": "/index.html" },
     { "source": "/", "destination": "/index.html" },
-    { "source": "/((?!assets/).*)", "destination": "/index.html" }
+    { "source": "/((?!assets/|api/).*)", "destination": "/index.html" }
   ]
 }
