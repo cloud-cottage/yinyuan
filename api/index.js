@@ -5,7 +5,7 @@
  * index.html；本文件把 `/api` 占成真实函数路由（文件系统匹配优先于 rewrite）⇒ 不再落 SPA HTML。
  * 同上，`/api/**` 的其它未命中路径由两处兜住：
  *   - 单段：`api/[...path].js`（Vercel 只把它注册成单段动态段，见该文件注释）
- *   - 多段（含尾斜杠）：`vercel.json` 末条兜底 rewrite `{ "/api/:path*" ⇒ "/api" }` ⇒ 落到本文件
+ *   - 多段（含尾斜杠）：`vercel.json` 末条兜底 rewrite `{ "/api/(.*)" ⇒ "/api" }` ⇒ 落到本文件
  * 两者都返回同一个 JSON 404 信封。
  */
 import { failWith } from './_lib/respond.js'

@@ -8,7 +8,8 @@
  *     /api/[...path]   ⇒ 命中本文件 ⇒ JSON 404 ✔（字面方括号＝单段）
  *     /api/v1/bogus    ⇒ **不命中**本文件 ⇒ 落 Vercel 默认纯文本 404 ✘（修复前实测）
  *     /api/v1/a/b/c    ⇒ 同上不命中 ✘
- *   多段未知路径现由 `vercel.json` 末条兜底 rewrite（`/api/:path*` ⇒ `/api`，即 `api/index.js`）接住。
+ *   多段未知路径现由 `vercel.json` 末条兜底 rewrite（`/api/(.*)` ⇒ `/api`，即 `api/index.js`）接住。
+ *   （先用过 `:path*` 形态，线上实测它不吃尾斜杠 `/api/v1/` ⇒ 改用本仓已验证可用的正则组形态。）
  *   本文件保留为单段层，与那条 rewrite 输出同一信封，删掉也不影响正确性（故意不删＝不动已上线文件结构）。
  *
  * 为什么需要兜底：`vercel.json` 的 SPA 改写默认会把 /api/** 吞成 index.html
