@@ -18,6 +18,8 @@
     { "source": "/help", "destination": "/index.html" },
     { "source": "/", "destination": "/index.html" },
     { "source": "/((?!assets/|api/).*)", "destination": "/index.html" },
+    { "source": "/api/v1/keys/:kid/rotate", "destination": "/api/v1/keys?kid=:kid&action=rotate" },
+    { "source": "/api/v1/keys/:kid", "destination": "/api/v1/keys?kid=:kid" },
     { "source": "/api/(.*)", "destination": "/api" }
   ]
 }

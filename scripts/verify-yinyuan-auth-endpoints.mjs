@@ -30,10 +30,11 @@ import { resetCache } from '../api/_lib/instance-cache.js'
 import { createLoginHandler } from '../api/v1/auth/login.js'
 import { createLogoutHandler } from '../api/v1/auth/logout.js'
 import { createRegisterHandler } from '../api/v1/auth/register.js'
-// ★ 路由形态修复（2026-10-18）：三个密钥端点收进一个 catch-all 分派器。
-//   旧路径 `api/v1/keys/[kid].js`、`api/v1/keys/[kid]/rotate.js` 已删除（线上实测不被注册成路由）；
-//   清单接口 `api/v1/keys/index.js` 现为 `[...path].js` 的薄再导出 ⇒ 自检统一从新文件取工厂。
-import { createKeysCatchAllHandler } from '../api/v1/keys/[...path].js'
+// ★ 路由形态修复（2026-10-18）：三个密钥端点收进 `api/v1/keys/index.js` 单入口分派。
+//   旧路径 `api/v1/keys/[kid].js`、`api/v1/keys/[kid]/rotate.js`（动态段）与
+//   `api/v1/keys/[...path].js`（方括号组）在线上**都没被注册成路由**（实测均落 /api/v1/bogus 同形 404）
+//   ⇒ 动态路径改由 `vercel.json` rewrite 折成 `?kid=` / `?kid=&action=rotate`（对外 URL 不变）。
+import { createKeysCatchAllHandler } from '../api/v1/keys/index.js'
 import { createMeHandler } from '../api/v1/me.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -336,6 +337,9 @@ function buildServer({ fakeDb, store, now }) {
   routes.set('/api/v1/dynasties', dynasties)
 
   const server = http.createServer((req, res) => {
+    // ★ 复刻 Vercel 的 `req.query`：生产上 `vercel.json` rewrite 折出的 `?kid=` / `?action=rotate`
+    //   正是落到这里（裸 node 的 IncomingMessage 没有 `.query`，不补就测不到 rewrite 通道）。
+    req.query = Object.fromEntries(new URL(String(req.url || '/'), 'http://harness.local').searchParams)
     const pathname = String(req.url || '/').split('?')[0]
     let handler = routes.get(pathname)
     // 密钥前缀下的全部形态交给 catch-all 分派器（0 段／1 段／{kid}/rotate／其它 ⇒ 分派器自判）
@@ -655,6 +659,42 @@ async function main() {
       (await api({ method: 'DELETE', path: '/api/v1/keys/k-0000000000000000', headers: sessionHeader })).status,
       404
     )
+
+    /* ★ rewrite 通道（生产实际入口）：`vercel.json` 把 `/keys/:kid` 折成 `?kid=`，
+       `/{kid}/rotate` 折成 `?kid=&action=rotate`。此处全程走 query 通道，验四件事：
+       形态判定进对了 handler、Allow 头不变、轮换 201 且旧 key 失效、撤销 200。 */
+    const viaQueryCreated = await api({
+      method: 'POST',
+      path: '/api/v1/keys',
+      headers: sessionHeader,
+      body: { label: 'query 通道' }
+    })
+    eq('query 通道：先建一把 ⇒ 201', viaQueryCreated.status, 201)
+    const queryKid = viaQueryCreated.json.key.id
+    const queryPlain = viaQueryCreated.json.key.plain
+    const queryGet = await api({ path: `/api/v1/keys?kid=${queryKid}`, headers: sessionHeader })
+    eq('query 通道 GET /keys?kid= ⇒ 405（形态进 item handler）', queryGet.status, 405)
+    eq('query 通道 GET 的 Allow 仍是 PATCH, DELETE', queryGet.headers.allow, 'PATCH, DELETE')
+    const queryRotated = await api({
+      method: 'POST',
+      path: `/api/v1/keys?kid=${queryKid}&action=rotate`,
+      headers: sessionHeader
+    })
+    eq('query 通道 rotate ⇒ 201', queryRotated.status, 201)
+    ok('query 通道 rotate 回新明文', typeof (queryRotated.json.key || {}).plain === 'string')
+    resetCache()
+    eq('query 通道 rotate 后旧行 status=revoked（先铸新后撤旧）', fakeDb.row('yinyuan_api_keys', queryKid).status, 'revoked')
+    ok('query 通道 rotate 后新旧两行都在（不物理删）', fakeDb.has('yinyuan_api_keys', queryKid) && fakeDb.has('yinyuan_api_keys', queryRotated.json.key.id))
+    const queryDeleted = await api({
+      method: 'DELETE',
+      path: `/api/v1/keys?kid=${queryRotated.json.key.id}`,
+      headers: sessionHeader
+    })
+    eq('query 通道 DELETE ⇒ 200', queryDeleted.status, 200)
+    const noSessionQuery = await api({ method: 'PATCH', path: '/api/v1/keys?kid=k-0000000000000000', body: { status: 'revoked' } })
+    eq('query 通道无会话 ⇒ 401（不是 404）', noSessionQuery.status, 401)
+    const noSessionRotate = await api({ method: 'POST', path: '/api/v1/keys?kid=k-0000000000000000&action=rotate' })
+    eq('query 通道 rotate 无会话 ⇒ 401（不是 404）', noSessionRotate.status, 401)
 
     // 上限：把 active 数填到 10（上限以内每次都必须成功），再建一把必须 409
     for (let i = 0; i < 10; i += 1) {
