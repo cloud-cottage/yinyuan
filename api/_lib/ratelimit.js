@@ -247,7 +247,7 @@ export async function enforceRateLimit(req, res, apiKey, options = {}) {
 
   if (verdict.allowed) return true
 
-  // 429 属错误面：`respond.failWith` ⇒ `Cache-Control: no-store`、无 `Vercel-CDN-Cache-Control`、
+  // 429 属错误面：`respond.failWith` ⇒ `Cache-Control: no-store`、无边缘缓存指令（全仓已一律不下发）、
   // 带 `Access-Control-Allow-Origin: *`（§7.13-2 ⑥ ／ §7.13-3 ⑧）。
   // 日志只给读数，不含 key ／ 指纹 ／ 令牌。
   console.warn(

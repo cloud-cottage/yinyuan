@@ -31,23 +31,23 @@ export const MESSAGES = Object.freeze({
 })
 
 /**
- * ★ 200 面的边缘缓存指令（2026-10-17 并发修复）。
+ * ★ 边缘缓存口径（2026-10-17 边缘缓存缺陷修复）。
  *
- * 契约面（**逐字不变**）：`Cache-Control: no-store` 在**三端点 × 全部状态码**上照旧（§7.10-2 ／ AC-102⑤）。
- * 并发面（新增）：仅 **200** 追加 `Vercel-CDN-Cache-Control`（Vercel 专属 CDN 缓存指令）
- *   ＋ `Vary: Authorization, X-API-Key`（把鉴权头值纳入边缘缓存键）。
+ * 本模块**不下发 `Vercel-CDN-Cache-Control`，也不下发 `Vary`**（原 `SUCCESS_CDN_CACHE_CONTROL`
+ * ／ `SUCCESS_CACHE_VARY` 两个导出已随之删除）。
  *
- * 三条硬约束：
- *  1) **错误面不缓存**：400 / 401 / 404 / 405 / 500 / 503 **不追加** CDN 指令 ⇒ 平台按
- *     `Cache-Control: no-store` 处理，不入边缘缓存（反证读数见 qa-recheck 报告）。
- *  2) **鉴权不降级**：`Vary` 让「带正确 key 的请求」与「无 key / 错 key 的请求」落在**不同**缓存条目上
- *     ⇒ 无 key 请求永远拿不到别人的 200 缓存体（且它本来就该拿 401）。
- *  3) **客户端可见面不变**：`Vercel-CDN-Cache-Control` 由 Vercel 代理消费后**不回传客户端**
- *     ⇒ 客户端看到的响应头与修复前**逐字一致**（`Cache-Control: no-store` 仍是那个值）。
+ * 根因（线上实测）：200 面挂 `public, s-maxage=60, stale-while-revalidate=300` ⇒ 固定 URL 命中
+ * CDN 边缘缓存时**函数根本不执行**，其后果有两条：① 限流不计次数（同一 URL 可无限刷、配额被绕过）；
+ * ② `X-RateLimit-Remaining` 随缓存体一起冻结（客户读到「卡住」的错数）。API 响应因此一律不可边缘缓存。
+ *
+ * 延迟改由**实例级缓存**兜底（`instance-cache.js`：TTL 60s、键含鉴权指纹、只缓存 200），
+ * 且在 `enforceRateLimit` **之后**读取 ⇒ 命中实例缓存仍然计次、Remaining 仍逐发递减。
+ *
+ * 契约面照旧（**逐字不变**）：`Cache-Control: no-store` 与 `Access-Control-Allow-Origin: *`
+ * 在**三端点 × 全部状态码**上照旧（§7.10-2 ／ AC-102⑤ ／ §7.13-3 ⑦ ⑧）。
+ * `Vary` 一并移除：来源恒 `*`、不反射 `Origin`；鉴权面由 key 校验 ＋ 实例缓存键内的鉴权指纹保证，
+ * 已无边缘缓存条目需要区分。
  */
-export const SUCCESS_CDN_CACHE_CONTROL = 'public, s-maxage=60, stale-while-revalidate=300'
-export const SUCCESS_CACHE_VARY = 'Authorization, X-API-Key'
-
 export function sendJson(res, status, payload) {
   const body = JSON.stringify(payload)
   res.statusCode = status
@@ -62,9 +62,8 @@ export function sendJson(res, status, payload) {
 }
 
 export function ok(res, data) {
-  // ★ 只有 200 走这里 ⇒ 只有成功面挂边缘缓存指令；错误面（fail / failWith）永远不挂。
-  res.setHeader('Vercel-CDN-Cache-Control', SUCCESS_CDN_CACHE_CONTROL)
-  res.setHeader('Vary', SUCCESS_CACHE_VARY)
+  // ★ 200 面**不挂任何边缘缓存指令**（详见本文件顶部：CDN 命中会让函数不执行 ⇒ 限流不计次）。
+  //   客户端 `Cache-Control: no-store` 与 CORS 头由 sendJson 统一挂，逐字不变。
   sendJson(res, 200, { ok: true, data })
 }
 
