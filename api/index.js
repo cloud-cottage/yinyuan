@@ -8,8 +8,12 @@
  *   - 多段（含尾斜杠）：`vercel.json` 末条兜底 rewrite `{ "/api/(.*)" ⇒ "/api" }` ⇒ 落到本文件
  * 两者都返回同一个 JSON 404 信封。
  */
+import { handlePreflight } from './_lib/cors.js'
 import { failWith } from './_lib/respond.js'
 
 export default function handler(req, res) {
+  // 预检（`OPTIONS` ＋ `Origin` ＋ `Access-Control-Request-Method`）⇒ 204 三头齐（§7.13-3 ④）：
+  // 未知路径同样放行预检，后续真实请求仍落下面的 JSON 404（该 404 亦带 `Allow-Origin`）。
+  if (handlePreflight(req, res)) return
   failWith(res, 404, 'NOT_FOUND')
 }

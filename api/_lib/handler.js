@@ -13,6 +13,7 @@
  */
 import { checkApiKey, extractApiKey } from './auth.js'
 import { isCloudBaseConfigured } from './cloudbase.js'
+import { handlePreflight } from './cors.js'
 import { authFingerprint, cacheKeyOf, markHit, markMiss, readCache, writeCache } from './instance-cache.js'
 import { getSearchParams } from './pagination.js'
 import { READ_DEADLINE_MS, describeError, withDeadline } from './resilience.js'
@@ -49,6 +50,10 @@ export function createGetHandler(routeName, run) {
     const startedAt = Date.now()
     try {
       const method = String((req && req.method) || 'GET').toUpperCase()
+      // ★ CORS 预检（v1.42 §7.13-3 ④ ／ ⑥）：`OPTIONS` ＋ `Origin` ＋
+      //   `Access-Control-Request-Method` ⇒ 204 无体三头齐，**先于方法门**。
+      //   非预检 `OPTIONS`（缺任一头）不命中 ⇒ 继续落到下面的方法门，仍 405 ＋ `Allow: GET`。
+      if (handlePreflight(req, res)) return
       if (method !== 'GET') {
         if (typeof res.setHeader === 'function') res.setHeader('Allow', 'GET')
         return failWith(res, 405, 'METHOD_NOT_ALLOWED')

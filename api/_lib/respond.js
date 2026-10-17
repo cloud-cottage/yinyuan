@@ -6,6 +6,8 @@
  *   - reason 为**机器可读**英文大写标识（对外稳定）
  *   - message 为**简体中文**人话，**不得**出现集合名、字段名、env 名、密钥等内部标识
  */
+import { CORS_ALLOW_ORIGIN } from './cors.js'
+
 export const REASONS = Object.freeze({
   NOT_CONFIGURED: 'NOT_CONFIGURED',
   UNAUTHORIZED: 'UNAUTHORIZED',
@@ -48,6 +50,10 @@ export function sendJson(res, status, payload) {
   res.setHeader('Content-Type', 'application/json; charset=utf-8')
   res.setHeader('Cache-Control', 'no-store')
   res.setHeader('X-Content-Type-Options', 'nosniff')
+  // ★ CORS（v1.42 §7.13-3 ⑦ ⑧）：**全部状态码**（含 400/401/404/405/500/503）一律带
+  //   `Access-Control-Allow-Origin: *` —— 否则浏览器侧读不到错误体，客户端分不清
+  //   「key 错」「超限」「服务端错」。来源恒 `*`、不反射 Origin ⇒ 不新增 `Vary: Origin`。
+  res.setHeader('Access-Control-Allow-Origin', CORS_ALLOW_ORIGIN)
   res.end(body)
 }
 

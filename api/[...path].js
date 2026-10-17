@@ -22,8 +22,11 @@
  * ⇒ 兜底 rewrite 不会截走三个真端点。
  * 说明：以 `_` 开头的文件（如 `api/_lib/*`）不会被 Vercel 注册成路由，仅作模块引用。
  */
+import { handlePreflight } from './_lib/cors.js'
 import { failWith } from './_lib/respond.js'
 
 export default function handler(req, res) {
+  // 预检 ⇒ 204 三头齐（§7.13-3 ④）；非预检 `OPTIONS` 与其余方法仍落 JSON 404。
+  if (handlePreflight(req, res)) return
   failWith(res, 404, 'NOT_FOUND')
 }
