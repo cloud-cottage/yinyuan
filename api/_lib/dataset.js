@@ -3,12 +3,21 @@
  *
  * 只做三件事：集合计数、按 `_id` 升序取页、按某字段聚合计数。
  * 全部为读面；**不写云库、不调写面接口**。
+ *
+ * ★ 健壮化（2026-10-17）：每个读操作都经 `withTransientRetry` 包一层**有界重试**
+ *   （只对瞬时类错误：建连/读取超时、网络类、STS 握手；上限 3 次尝试 ＋ 12s 预算，
+ *   指数退避 250ms → 750ms）。理由：线上 500 的真因是云库 SDK 的 `connect timeout`
+ *   （建连阶段 ETIMEDOUT）而该 SDK 默认不重试 —— 这类抖动重试一次通常即成功；
+ *   非瞬时错误（参数非法/未配置/应用级）**立即抛出**，不重试。
  */
+import { withTransientRetry } from './resilience.js'
 
 /** 集合总条数。 */
 export async function countDocs(db, collection) {
-  const res = await db.collection(collection).count()
-  return typeof res.total === 'number' ? res.total : 0
+  return withTransientRetry(async () => {
+    const res = await db.collection(collection).count()
+    return typeof res.total === 'number' ? res.total : 0
+  }, { label: `count:${collection}` })
 }
 
 /**
@@ -17,13 +26,15 @@ export async function countDocs(db, collection) {
  */
 export async function fetchPage(db, collection, offset, limit) {
   if (limit <= 0) return []
-  const res = await db
-    .collection(collection)
-    .orderBy('_id', 'asc')
-    .skip(offset)
-    .limit(limit)
-    .get()
-  return Array.isArray(res.data) ? res.data : []
+  return withTransientRetry(async () => {
+    const res = await db
+      .collection(collection)
+      .orderBy('_id', 'asc')
+      .skip(offset)
+      .limit(limit)
+      .get()
+    return Array.isArray(res.data) ? res.data : []
+  }, { label: `page:${collection}` })
 }
 
 /**
@@ -42,12 +53,14 @@ const AGG_BUCKET_LIMIT = 1000
  */
 export async function countByField(db, collection, field) {
   const $ = db.command.aggregate
-  const res = await db
-    .collection(collection)
-    .aggregate()
-    .group({ _id: `$${field}`, n: $.sum(1) })
-    .limit(AGG_BUCKET_LIMIT)
-    .end()
+  const res = await withTransientRetry(async () => {
+    return await db
+      .collection(collection)
+      .aggregate()
+      .group({ _id: `$${field}`, n: $.sum(1) })
+      .limit(AGG_BUCKET_LIMIT)
+      .end()
+  }, { label: `aggregate:${collection}.${field}` })
   const rows = Array.isArray(res.data) ? res.data : []
   if (rows.length >= AGG_BUCKET_LIMIT) {
     // 触到上限即可能截断：只记服务端日志，不改写对外数据（宁可如实少、也不编造）

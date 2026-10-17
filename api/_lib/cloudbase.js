@@ -9,6 +9,7 @@
  */
 import tcb from '@cloudbase/node-sdk'
 import { NotConfiguredError } from './respond.js'
+import { CB_REQUEST_TIMEOUT_MS } from './resilience.js'
 
 let cached = null
 
@@ -27,15 +28,26 @@ export function isCloudBaseConfigured() {
 }
 
 /**
- * 取 database 句柄（模块级缓存；同进程复用同一 app 实例）。
+ * 取 database 句柄（**模块作用域缓存**：暖实例复用同一 app 与同一 db 句柄，不重建）。
  * 未配置凭据 ⇒ 抛 NotConfiguredError。
+ *
+ * ★ 显式超时（2026-10-17 修复）：`tcb.init` 的 `timeout` **默认是 15000ms 的隐式默认值**
+ *   （`normalizeConfig` 里 `timeout = 15000`），且 SDK 在**建连阶段**超时会抛
+ *   `connect timeout`（`code=ETIMEDOUT`）。本仓显式传 `CB_REQUEST_TIMEOUT_MS`，
+ *   使「单次云库请求」的时间上限成为**代码内可读、可评审、可调**的常量，
+ *   并与 `resilience.js` 的有界重试 ＋ 请求级截止共同构成显式时间预算。
  */
 export function getDb() {
   const cfg = cbConfig()
   if (!cfg.configured) throw new NotConfiguredError('cloudbase credentials missing')
   const cacheKey = `${cfg.env}|${cfg.secretId}|${cfg.secretKey}`
   if (cached && cached.cacheKey === cacheKey) return cached.db
-  const app = tcb.init({ env: cfg.env, secretId: cfg.secretId, secretKey: cfg.secretKey })
+  const app = tcb.init({
+    env: cfg.env,
+    secretId: cfg.secretId,
+    secretKey: cfg.secretKey,
+    timeout: CB_REQUEST_TIMEOUT_MS
+  })
   const db = app.database()
   cached = { cacheKey, db }
   return db
