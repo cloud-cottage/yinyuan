@@ -16,6 +16,7 @@ import { isCloudBaseConfigured } from './cloudbase.js'
 import { handlePreflight } from './cors.js'
 import { authFingerprint, cacheKeyOf, markHit, markMiss, readCache, writeCache } from './instance-cache.js'
 import { getSearchParams } from './pagination.js'
+import { enforceRateLimit } from './ratelimit.js'
 import { READ_DEADLINE_MS, describeError, withDeadline } from './resilience.js'
 import { InvalidParamError, NotConfiguredError, fail, failWith, ok } from './respond.js'
 
@@ -63,6 +64,14 @@ export function createGetHandler(routeName, run) {
       if (!authResult.ok) return failWith(res, authResult.status, authResult.reason)
 
       if (!isCloudBaseConfigured()) return failWith(res, 503, 'NOT_CONFIGURED')
+
+      // ★ 每日限额（v1.43 §7.13-2 ／ §7.14-1 ／ AC-130 ～ AC-132）：计数点钉在
+      //   「方法门 → 鉴权 → 路由命中 → 数据源已配置」**之后** ⇒ `401` ／ `404` ／ `405` ／ `503`
+      //   与预检 `OPTIONS` 一律不计数（计数面 ＝ 鉴权通过后的全部请求，含 200 ／ 400 ／ 500）。
+      //   **存储不可用 / 超时 ⇒ 放行且不 5xx**（降级在 ratelimit.js 内完成，只留一行服务端日志）；
+      //   超限时本函数已回 `429` ＋ `RATE_LIMITED`（错误面：no-store、无 CDN 指令、带 CORS）。
+      const withinQuota = await enforceRateLimit(req, res, extractApiKey(req))
+      if (!withinQuota) return undefined
 
       // ★ 实例级缓存（2026-10-17 并发修复）：**鉴权通过之后**才查缓存，
       //   且缓存键内含**鉴权指纹**（sha256(key) 前 16 位）⇒ 金钥错配取不到别人的 200 缓存体；

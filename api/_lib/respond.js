@@ -14,7 +14,9 @@ export const REASONS = Object.freeze({
   METHOD_NOT_ALLOWED: 'METHOD_NOT_ALLOWED',
   NOT_FOUND: 'NOT_FOUND',
   INVALID_PARAM: 'INVALID_PARAM',
-  INTERNAL_ERROR: 'INTERNAL_ERROR'
+  INTERNAL_ERROR: 'INTERNAL_ERROR',
+  // ★ 第七值（v1.43 §7.13-2 ④）：原六值及其码一一对应关系一字不改，仅追加 RATE_LIMITED(429)
+  RATE_LIMITED: 'RATE_LIMITED'
 })
 
 /** 对外固定文案（简体中文、不含内部标识）。 */
@@ -23,7 +25,9 @@ export const MESSAGES = Object.freeze({
   UNAUTHORIZED: '访问密钥缺失或无效。',
   METHOD_NOT_ALLOWED: '本接口仅支持 GET 请求。',
   NOT_FOUND: '接口不存在。',
-  INTERNAL_ERROR: '数据读取失败，请稍后重试。'
+  INTERNAL_ERROR: '数据读取失败，请稍后重试。',
+  // ★ 唯一规范形态（v1.43 §7.13-2 ④）：简体、逐字、不含集合名/字段名/env 名/key/云库标识/堆栈
+  RATE_LIMITED: '今日调用次数已达上限，请明日再试。'
 })
 
 /**
