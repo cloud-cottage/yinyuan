@@ -25,6 +25,7 @@
  * 块类型：h1 h2 h3 p strong? code quote ul ol table hr
  */
 import { endpointBlocks } from './apidoc-endpoints.js'
+import { liveBlocks } from './apidoc-live.js'
 
 /** 行 317–331：接口清单总表（更新定稿）。 */
 const clauseBlocks = [
@@ -231,5 +232,5 @@ const overviewBlocks = [
   },
 ]
 
-/** 页面渲染顺序：接口清单总表（源文件在前）→ 修订版全文。 */
-export const apidocBlocks = [...clauseBlocks, ...overviewBlocks, ...endpointBlocks]
+/** 页面渲染顺序：接口清单总表（源文件在前）→ 修订版全文 → 已上线接口（v1.43 新增，追加在末尾、不改既有章节）。 */
+export const apidocBlocks = [...clauseBlocks, ...overviewBlocks, ...endpointBlocks, ...liveBlocks]
