@@ -30,9 +30,10 @@ import { resetCache } from '../api/_lib/instance-cache.js'
 import { createLoginHandler } from '../api/v1/auth/login.js'
 import { createLogoutHandler } from '../api/v1/auth/logout.js'
 import { createRegisterHandler } from '../api/v1/auth/register.js'
-import { createKeyItemHandler } from '../api/v1/keys/[kid].js'
-import { createKeyRotateHandler } from '../api/v1/keys/[kid]/rotate.js'
-import { createKeysHandler } from '../api/v1/keys/index.js'
+// ★ 路由形态修复（2026-10-18）：三个密钥端点收进一个 catch-all 分派器。
+//   旧路径 `api/v1/keys/[kid].js`、`api/v1/keys/[kid]/rotate.js` 已删除（线上实测不被注册成路由）；
+//   清单接口 `api/v1/keys/index.js` 现为 `[...path].js` 的薄再导出 ⇒ 自检统一从新文件取工厂。
+import { createKeysCatchAllHandler } from '../api/v1/keys/[...path].js'
 import { createMeHandler } from '../api/v1/me.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -311,9 +312,9 @@ function buildServer({ fakeDb, store, now }) {
   routes.set('/api/v1/auth/login', createLoginHandler(common))
   routes.set('/api/v1/auth/logout', createLogoutHandler(common))
   routes.set('/api/v1/me', createMeHandler(common))
-  routes.set('/api/v1/keys', createKeysHandler(common))
-  const item = createKeyItemHandler(common)
-  const rotate = createKeyRotateHandler(common)
+  // ★ 三个密钥端点由**同一个 catch-all 分派器**接（与线上入口同形：路径段在 handler 内自判，
+  //   不再依赖路由表的正则替身）⇒ 自检打的是真分派逻辑。
+  const keysAll = createKeysCatchAllHandler(common)
 
   // 数据端点（假上游：真 countByField + 假 DB；鉴权走真实 handler 工厂 + 注入 db）
   const dynasties = createGetHandler(
@@ -337,10 +338,8 @@ function buildServer({ fakeDb, store, now }) {
   const server = http.createServer((req, res) => {
     const pathname = String(req.url || '/').split('?')[0]
     let handler = routes.get(pathname)
-    if (!handler) {
-      if (/^\/api\/v1\/keys\/[^/]+\/rotate$/.test(pathname)) handler = rotate
-      else if (/^\/api\/v1\/keys\/[^/]+$/.test(pathname)) handler = item
-    }
+    // 密钥前缀下的全部形态交给 catch-all 分派器（0 段／1 段／{kid}/rotate／其它 ⇒ 分派器自判）
+    if (!handler && (pathname === '/api/v1/keys' || pathname.startsWith('/api/v1/keys/'))) handler = keysAll
     if (!handler) {
       res.statusCode = 404
       res.setHeader('content-type', 'application/json')
@@ -583,6 +582,20 @@ async function main() {
     eq('预检 ⇒ 204', preflight.status, 204)
     eq('预检 Allow-Methods 含 POST/PATCH/DELETE', preflight.headers['access-control-allow-methods'], 'GET, POST, PATCH, DELETE, OPTIONS')
     eq('预检 Allow-Origin = *', preflight.headers['access-control-allow-origin'], '*')
+
+    /* ── 分派形状门（catch-all 入口把三种形态收在一个文件里，未识别形态必须落 JSON 404） ── */
+    const getItem = await api({ path: '/api/v1/keys/k-0000000000000000', headers: sessionHeader })
+    eq('GET /keys/{kid} ⇒ 405（方法门先于认证）', getItem.status, 405)
+    eq('GET /keys/{kid} 的 Allow 仍是 PATCH, DELETE', getItem.headers.allow, 'PATCH, DELETE')
+    const bogusTail = await api({ path: '/api/v1/keys/k-0000000000000000/bogus', headers: sessionHeader })
+    eq('/keys/{kid}/bogus ⇒ 404（未识别形态）', bogusTail.status, 404)
+    eq('/keys/{kid}/bogus reason=NOT_FOUND', bogusTail.json && bogusTail.json.reason, 'NOT_FOUND')
+    eq('/keys/{kid}/bogus 文案与全站兜底逐字一致', bogusTail.json && bogusTail.json.message, '接口不存在。')
+    const deepPath = await api({ path: '/api/v1/keys/a/b/c' })
+    eq('/keys/a/b/c ⇒ 404（多段未识别，不泄露端点面）', deepPath.status, 404)
+    eq('/keys/a/b/c reason=NOT_FOUND', deepPath.json && deepPath.json.reason, 'NOT_FOUND')
+    eq('未识别形态仍带 CORS 头', deepPath.headers['access-control-allow-origin'], '*')
+    eq('未识别形态仍带 Cache-Control: no-store', deepPath.headers['cache-control'], 'no-store')
 
     const tooBig = await api({
       method: 'POST',
