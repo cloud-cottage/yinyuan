@@ -34,7 +34,7 @@ export const endpointBlocks = [
     ],
   },
   { type: 'p', strong: true, parts: [{ b: '请求示例' }] },
-  { type: 'code', t: 'curl -H "Authorization: ApiKey YOUR_API_KEY" https://api.example.com/yinyuan/v1/all' },
+  { type: 'code', t: 'curl -H "Authorization: ApiKey YOUR_API_KEY" https://yinyuan2026.vercel.app/api/v1/all' },
   { type: 'p', strong: true, parts: [{ b: '响应示例' }] },
   {
     type: 'code',
@@ -74,7 +74,7 @@ export const endpointBlocks = [
     ],
   },
   { type: 'p', strong: true, parts: [{ b: '请求示例' }] },
-  { type: 'code', t: 'curl -H "Authorization: ApiKey YOUR_API_KEY" https://api.example.com/yinyuan/v1/preview/res_001' },
+  { type: 'code', t: 'curl -H "Authorization: ApiKey YOUR_API_KEY" https://yinyuan2026.vercel.app/api/v1/preview/res_001' },
   { type: 'p', strong: true, parts: [{ b: '响应示例' }] },
   {
     type: 'code',
@@ -113,7 +113,7 @@ export const endpointBlocks = [
     ],
   },
   { type: 'p', strong: true, parts: [{ b: '请求示例' }] },
-  { type: 'code', t: 'curl -H "Authorization: ApiKey YOUR_API_KEY" "https://api.example.com/yinyuan/v1/preview/batch?ids=res_001,res_002"' },
+  { type: 'code', t: 'curl -H "Authorization: ApiKey YOUR_API_KEY" "https://yinyuan2026.vercel.app/api/v1/preview/batch?ids=res_001,res_002"' },
   { type: 'p', strong: true, parts: [{ b: '响应示例' }] },
   {
     type: 'code',
@@ -163,7 +163,7 @@ export const endpointBlocks = [
     ],
   },
   { type: 'p', strong: true, parts: [{ b: '请求示例' }] },
-  { type: 'code', t: 'curl -H "Authorization: ApiKey YOUR_API_KEY" https://api.example.com/yinyuan/v1/detail/res_001' },
+  { type: 'code', t: 'curl -H "Authorization: ApiKey YOUR_API_KEY" https://yinyuan2026.vercel.app/api/v1/detail/res_001' },
   { type: 'p', strong: true, parts: [{ b: '响应示例' }] },
   {
     type: 'code',
@@ -193,7 +193,7 @@ export const endpointBlocks = [
     ],
   },
   { type: 'p', strong: true, parts: [{ b: '请求示例' }] },
-  { type: 'code', t: 'curl -H "Authorization: ApiKey YOUR_API_KEY" "https://api.example.com/yinyuan/v1/search/?category=玺印&dynasty=明"' },
+  { type: 'code', t: 'curl -H "Authorization: ApiKey YOUR_API_KEY" "https://yinyuan2026.vercel.app/api/v1/search/?category=玺印&dynasty=明"' },
   { type: 'p', strong: true, parts: [{ b: '响应示例' }] },
   {
     type: 'code',
@@ -215,7 +215,7 @@ export const endpointBlocks = [
     ],
   },
   { type: 'p', strong: true, parts: [{ b: '请求示例' }] },
-  { type: 'code', t: 'curl -H "Authorization: ApiKey YOUR_API_KEY" https://api.example.com/yinyuan/v1/bill' },
+  { type: 'code', t: 'curl -H "Authorization: ApiKey YOUR_API_KEY" https://yinyuan2026.vercel.app/api/v1/bill' },
   { type: 'p', strong: true, parts: [{ b: '响应示例' }] },
   {
     type: 'code',

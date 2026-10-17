@@ -14,11 +14,11 @@
  * 搬运纪律（本轮固定）：
  *   - 只做 markdown 语法记号到结构化字段的**手工**映射（`##`→h2、`>`→quote、`|` 表→table、
  *     `**`→加粗片段、行内反引号→代码片段）。记号本身不是内容，一律不进入 parts。
- *   - 正文可见文本逐字保留：基础地址 `https://api.example.com/yinyuan/v1` 原样、
+ *   - 正文可见文本逐字保留（**唯一例外＝「地址字面」**：基础地址与示例 URL 的旧前缀已依 Kevin 2026-10-17 裁定一律修正为 `https://yinyuan2026.vercel.app/api/v1`，路径末段与查询串逐字保留）：
  *     鉴权示例里的 `ApiKey` 与该行占位密钥原样（源文件字节为 `ApiKey YOUR_API_KEY`；
  *     注意：某些工具回显会把 `ApiKey <token>` 打码成三个星号，落盘一律以源文件字节为准）、
  *     未定稿声明（「后续文档补充」「后续版本补充」）照抄。
- *   - 接口清单表用**全路径**（形如 `/yinyuan/v1/all`），下文各接口小标题用**相对路径**
+ *   - 接口清单表用**全路径**（形如 `/api/v1/all`），下文各接口小标题用**相对路径**
  *     （形如 `/all`）——两种形态如实保留，不统一、不推导。
  *
  * parts 片段类型：{ t } 纯文本 · { c } 行内代码 · { b } 加粗
@@ -36,21 +36,21 @@ const clauseBlocks = [
       [
         [{ t: '1' }],
         [{ t: 'GET' }],
-        [{ c: '/yinyuan/v1/all' }],
+        [{ c: '/api/v1/all' }],
         [{ t: '无入参。鉴权通过返回' }, { b: '全量 resourceId + 核心属性' }, { t: '，不含预览图。客户本地做列表、筛选、翻页。' }],
         [{ t: '每日最多 ' }, { b: '1000 次' }, { t: '，无 QPS 限制' }],
       ],
       [
         [{ t: '2' }],
         [{ t: 'GET' }],
-        [{ c: '/yinyuan/v1/preview/{resourceId}' }],
+        [{ c: '/api/v1/preview/{resourceId}' }],
         [{ t: '单 ID 获取预览图：路径传入单个 resourceId，返回 4 张预览图 URL + transform 几何参数' }],
         [{ t: '默认 QPS 20，合同可协商上调' }],
       ],
       [
         [{ t: '3' }],
         [{ t: 'GET' }],
-        [{ c: '/yinyuan/v1/preview/batch' }],
+        [{ c: '/api/v1/preview/batch' }],
         [
           { t: '批量获取预览图：Query 参数 ' },
           { c: 'ids=res_001,res_002' },
@@ -62,21 +62,21 @@ const clauseBlocks = [
       [
         [{ t: '4' }],
         [{ t: 'GET' }],
-        [{ c: '/yinyuan/v1/detail/{resourceId}' }],
+        [{ c: '/api/v1/detail/{resourceId}' }],
         [{ t: '单 ID 查询附加属性 + 高清原图签名 URL。高清原图 URL 有效期：' }, { b: '5 分钟' }],
         [{ t: '默认 QPS 20，合同可协商上调' }],
       ],
       [
         [{ t: '5' }],
         [{ t: 'GET' }],
-        [{ c: '/yinyuan/v1/search/' }],
+        [{ c: '/api/v1/search/' }],
         [{ t: 'GET 扁平化 Query 参数检索附加属性，返回匹配 resourceId 列表，单次最多返回 100 条 ID' }],
         [{ t: '默认 QPS 10，合同可协商上调' }],
       ],
       [
         [{ t: '6' }],
         [{ t: 'GET' }],
-        [{ c: '/yinyuan/v1/bill' }],
+        [{ c: '/api/v1/bill' }],
         [{ t: '查询账单：原图消耗次数、月度额度、剩余流量，对账使用' }],
         [{ t: '默认 QPS 5' }],
       ],
@@ -135,7 +135,7 @@ const overviewBlocks = [
 
   { type: 'h3', t: '1.2 版本信息' },
   { type: 'p', parts: [{ t: '当前版本：' }, { c: 'v1' }] },
-  { type: 'p', parts: [{ t: '基础地址：' }, { c: 'https://api.example.com/yinyuan/v1' }] },
+  { type: 'p', parts: [{ t: '基础地址：' }, { c: 'https://yinyuan2026.vercel.app/api/v1' }] },
 
   { type: 'h3', t: '1.3 鉴权方式' },
   { type: 'p', parts: [{ t: '所有接口必须在 HTTP 请求头携带 api-key：' }] },
