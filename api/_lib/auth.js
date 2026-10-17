@@ -11,19 +11,20 @@
  * ★ 两条通道任一生效即通行；返回值带身份上下文 `{ ok:true, via:'env'|'key', userId?, keyId? }`。
  *
  * ★ **两个入口，别混用**：
- *   - `checkApiKey(req)`        —— **同步、只认 env**（现网 `handler.js` 正在用；本单不改它）。
- *   - `checkApiKeyAsync(req, …)` —— **异步、双通道**（新路由/新端点用这个）。
+ *   - `checkApiKey(req)`        —— **同步、只认 env**（保留作回滚面与既有自检）。
+ *   - `checkApiKeyAsync(req, …)` —— **异步、双通道**（`handler.js` 与所有新端点用这个）。
  *
- *   ⚠ 对 `handler.js` 的影响面（**本单刻意不改**）：`handler.js:63` 是
- *     `const authResult = checkApiKey(req)` 的**同步**用法。若把 `checkApiKey` 直接改成 async，
- *     该处会拿到 Promise ⇒ `authResult.ok` 为 `undefined` ⇒ 落到
- *     `failWith(res, undefined, undefined)` ⇒ 现网四个数据端点**全部变成无状态码的空响应**，
- *     等于破坏对外契约。⇒ 正确做法是**另起 async 入口**（本文件已提供），由路由单把
- *     `handler.js` 那一行改成 `const authResult = await checkApiKeyAsync(req)`。
- *     影响面：① 该行必须加 `await`；② DB 通道命中的请求多一次云库读（几十毫秒；实例缓存与
- *     限流计数都在鉴权之后，顺序不变）；③ env 通道仍在任何 await 之前返回，机构钥匙延迟不变。
+ *   ⚠ 对 `handler.js` 的影响面（**B2 已接线，2026-10-18**）：`handler.js` 现为
+ *     `const authResult = await checkApiKeyAsync(req, authOptions)`。
+ *     影响面：① 该行必须 `await`（漏 await ⇒ `authResult.ok` 为 `undefined` ⇒ 四个数据端点全部变空响应）；
+ *     ② DB 通道命中的请求多一次云库读（几十毫秒；限流计数与实例缓存都在鉴权之后，顺序不变）；
+ *     ③ env 通道仍在任何 await 之前返回，机构钥匙延迟不变。
  *     风险：云库不可用时客户 key 全拒（fail-closed）；回滚：把该行改回 `checkApiKey(req)`
  *     （同步入口一直保留）。
+ *
+ * ★ **账号停用即时失效（B2）**：`checkKeyOwner(userId, options)` 复核 key 的归属账号
+ *   `status === 'active'`。数据端点（`handler.js`）在客户钥匙命中后调用它 —— 停用账号的
+ *   key **立即 401**，不等令牌/缓存过期。env 机构钥匙不触库、不走这条复核。
  *
  * ★ 失败形态（`{ok:false, status, reason}`，由 handler 统一落码）：
  *   - 同步入口：未配置 env ⇒ 503 NOT_CONFIGURED（含请求带了任意 key）；key 缺失/不匹配 ⇒ 401
@@ -34,6 +35,7 @@
  */
 import { timingSafeEqual } from 'node:crypto'
 import { touch, verifyKey } from './apiKeys.js'
+import { findById as findUserById } from './users.js'
 
 export const API_KEY_ENV = 'YINYUAN_API_KEY'
 
@@ -158,4 +160,52 @@ export async function checkApiKeyAsync(req, options = {}) {
     return { ok: false, status: 503, reason: 'NOT_CONFIGURED' }
   }
   return { ok: false, status: 401, reason: 'UNAUTHORIZED' }
+}
+
+/**
+ * ★ 客户 key 的**归属账号状态复核**（B2 安全硬要求：停用账号 ⇒ 其 API Key 立即失效）。
+ *
+ * 为什么不在 `verifyKey` 里做：`apiKeys.js` 是纯 key 存储模块（不该知道账号表）；
+ * 也不在 `checkApiKeyAsync` 里默认做：那会把既有自检里「先停用账号、后验 key」的
+ * 存储层断言翻掉，且隐式多一次读、调用方无从选择。⇒ 独立入口，由**数据端点**显式调用：
+ * `handler.js` 在 `authResult.via === 'key'` 时调用本函数（env 机构钥匙零额外开销）。
+ *
+ * @param {string} userId key 行的 `user_id`
+ * @param {{db?:object}} [options] 注入式数据层（自检/测试用；缺省走 CloudBase）
+ * @returns {Promise<{ok:true, user:object}|{ok:false, status:number, reason:string}>}
+ *   - 账号 `status !== 'active'` / 找不到账号 ⇒ 401 UNAUTHORIZED（**不泄漏停用事实**）
+ *   - 存储不可用 ⇒ env 已配置时 401（不报告服务端状态），env 未配置时 503（fail-closed）
+ */
+export async function checkKeyOwner(userId, options = {}) {
+  if (typeof userId !== 'string' || userId === '') {
+    return { ok: false, status: 401, reason: 'UNAUTHORIZED' }
+  }
+  let db = options.db || null
+  let found = null
+  try {
+    if (!db) db = await defaultDb()
+    found = await findUserById(db, userId)
+  } catch (error) {
+    const name = (error && error.name) || 'Error'
+    console.error(`[api] auth key-owner lookup unavailable error=${name} code=${(error && error.code) || '-'}`)
+    found = { ok: false, reason: 'STORAGE_UNAVAILABLE' }
+  }
+
+  if (!found || found.ok !== true) {
+    // 复核不了就**不放行**；对外形态与「判据不可用」的既有口径一致（详见 checkApiKeyAsync）
+    const envConfigured = isApiKeyConfigured()
+    return envConfigured
+      ? { ok: false, status: 401, reason: 'UNAUTHORIZED' }
+      : { ok: false, status: 503, reason: 'NOT_CONFIGURED' }
+  }
+  if (!found.user) {
+    // 孤儿 key（key 行在、账号行不在）：等同无效凭据
+    console.warn('[api] auth key-owner rejected reason=OWNER_MISSING')
+    return { ok: false, status: 401, reason: 'UNAUTHORIZED' }
+  }
+  if (String(found.user.status || '') !== 'active') {
+    console.warn('[api] auth key-owner rejected reason=ACCOUNT_DISABLED')
+    return { ok: false, status: 401, reason: 'UNAUTHORIZED' }
+  }
+  return { ok: true, user: found.user }
 }

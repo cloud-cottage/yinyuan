@@ -30,7 +30,7 @@
  *   不改变默认语义、不进对外文档；`evaluateRateLimit` 另有 `now / env / fetchImpl` 注入面。
  */
 import { createHash } from 'node:crypto'
-import { failWith } from './respond.js'
+import { fail, failWith } from './respond.js'
 
 /** 每日上限缺省值（规范值 1000 次 / 键 / 自然日）。 */
 export const RATE_LIMIT_MAX_PER_DAY_DEFAULT = 1000
@@ -254,5 +254,117 @@ export async function enforceRateLimit(req, res, apiKey, options = {}) {
     `[api/ratelimit] limited counted=1 action=reject used=${verdict.used} limit=${verdict.limit} reset=${verdict.reset}`
   )
   failWith(res, 429, 'RATE_LIMITED')
+  return false
+}
+
+/* ── 固定窗口节流（B2：登录 / 注册防爆破） ───────────────────────── */
+
+/**
+ * 会话端点节流口径（写死；改口径＝改本节并同轮升规范）。
+ *
+ * 与上面的「每日 1000 次/键」是**两件事**：
+ *   - 那是**业务配额**（按 key 计、自然日窗口、超限文案「今日调用次数已达上限」）；
+ *   - 这是**防爆破节流**（按「作用域 + 调用方指纹」计、固定短窗口、超限文案「尝试次数过多」）。
+ * 存储复用同一 Redis 命名空间与同一 `incrCounter`（**不新增任何依赖 / 不新增环境变量**），
+ * 键形 `yinyuan:rl:<scope>:<窗口序号>:<sha256(标识) 前 16 位>` —— 标识（IP / 手机号 / 邮箱）
+ * **只以摘要形态出现**，Redis 里与日志里都没有原文。
+ *
+ * 取值理由：登录**两道** —— 同一 IP 30 次 / 10 分钟（挡「一个来源撞多账号」），
+ * 同一标识 10 次 / 10 分钟（挡「多来源撞同一账号」）；注册 5 次 / 1 小时（同一 IP）。
+ * —— 正常用户远够用；窗口过期自动恢复（无人工解锁）。
+ */
+export const AUTH_THROTTLE = Object.freeze({
+  LOGIN_IP: Object.freeze({ scope: 'auth:login:ip', limit: 30, windowSeconds: 600 }),
+  LOGIN_ACCOUNT: Object.freeze({ scope: 'auth:login:acct', limit: 10, windowSeconds: 600 }),
+  REGISTER: Object.freeze({ scope: 'auth:register', limit: 5, windowSeconds: 60 * 60 })
+})
+
+/** 固定窗口序号（`floor(now / 窗口)`）—— 序号一变即新键，天然无需「删键解锁」。 */
+export function throttleBucket(nowMs, windowSeconds) {
+  const width = Math.max(1, Math.floor(Number(windowSeconds) || 1)) * 1000
+  return Math.floor(Number(nowMs) / width)
+}
+
+/** 窗口结束时刻（Unix 秒；`X-RateLimit-Reset` 语义）。 */
+export function throttleResetEpochSeconds(nowMs, windowSeconds) {
+  const width = Math.max(1, Math.floor(Number(windowSeconds) || 1))
+  return (throttleBucket(nowMs, width) + 1) * width
+}
+
+/**
+ * 节流判定（纯决策，不写响应；存储不可用 ⇒ 放行，与 `evaluateRateLimit` 同一降级纪律）。
+ * @returns {Promise<{counted:boolean, allowed:boolean, limit:number, used?:number,
+ *                    remaining?:number, reset?:number, degraded?:boolean, reason?:string}>}
+ */
+export async function evaluateThrottle(options = {}) {
+  const {
+    scope = 'auth',
+    identifier = '',
+    limit = 10,
+    windowSeconds = 600,
+    now = Date.now(),
+    env = process.env,
+    fetchImpl,
+    timeoutMs
+  } = options
+  const max = Math.max(1, Math.floor(Number(limit) || 1))
+  const width = Math.max(1, Math.floor(Number(windowSeconds) || 1))
+  const bucket = throttleBucket(now, width)
+  const reset = throttleResetEpochSeconds(now, width)
+  const ttlSeconds = width + TTL_SLACK_SECONDS
+
+  try {
+    const used = await incrCounter({
+      dayKey: `${scope}:${bucket}`,
+      fingerprint: keyFingerprint(identifier),
+      ttlSeconds,
+      env,
+      fetchImpl,
+      timeoutMs
+    })
+    return {
+      counted: true,
+      allowed: used <= max,
+      limit: max,
+      used,
+      remaining: Math.max(0, max - used),
+      reset
+    }
+  } catch (error) {
+    return {
+      counted: false,
+      allowed: true,
+      limit: max,
+      degraded: true,
+      reason: (error && error.reason) || 'unknown'
+    }
+  }
+}
+
+/**
+ * 路由内节流门：写 `X-RateLimit-*`，超限直接落 `429`。
+ * 返回 `true` ⇒ 放行；`false` ⇒ 已回 429（调用方立即 return）。
+ * 文案与「每日配额」区分（本门的 message 是「尝试次数过多，请稍后再试。」）。
+ */
+export async function enforceThrottle(res, throttle) {
+  const verdict = await evaluateThrottle(throttle)
+  if (typeof res.setHeader === 'function') {
+    res.setHeader('X-RateLimit-Limit', String(verdict.limit))
+  }
+  if (!verdict.counted) {
+    console.warn(
+      `[api/throttle] degraded counted=0 action=allow scope=${throttle.scope || 'auth'} limit=${verdict.limit} reason=${verdict.reason}`
+    )
+    return true
+  }
+  if (typeof res.setHeader === 'function') {
+    res.setHeader('X-RateLimit-Remaining', String(verdict.remaining))
+    res.setHeader('X-RateLimit-Reset', String(verdict.reset))
+  }
+  if (verdict.allowed) return true
+  console.warn(
+    `[api/throttle] limited counted=1 action=reject scope=${throttle.scope || 'auth'} used=${verdict.used} limit=${verdict.limit} reset=${verdict.reset}`
+  )
+  fail(res, 429, 'RATE_LIMITED', '尝试次数过多，请稍后再试。')
   return false
 }

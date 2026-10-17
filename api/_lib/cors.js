@@ -22,6 +22,8 @@
 
 export const CORS_ALLOW_ORIGIN = '*'
 export const CORS_ALLOW_METHODS = 'GET, OPTIONS'
+/** 会话/密钥路由（B2）的方法面：同源 `*`、不反射 Origin，仅放宽 `Allow-Methods`。 */
+export const CORS_ALLOW_METHODS_SESSION = 'GET, POST, PATCH, DELETE, OPTIONS'
 export const CORS_ALLOW_HEADERS = 'Authorization, X-API-Key, Content-Type'
 export const CORS_MAX_AGE = '600'
 
@@ -63,13 +65,16 @@ export function isPreflight(req) {
 
 /**
  * 预检短路：命中即写 204（无体）并返回 true；未命中返回 false，由调用方继续走方法门。
- * 调用点：`createGetHandler`（三个端点）＋ `api/index.js` ／ `api/[...path].js`（404 兜底）。
+ * 调用点：`createGetHandler`（三个端点）＋ `api/index.js` ／ `api/[...path].js`（404 兜底）
+ * ＋ `createRouteHandler`（B2 会话/密钥路由，传 `CORS_ALLOW_METHODS_SESSION`）。
+ *
+ * `allowMethods` 缺省 ＝ `CORS_ALLOW_METHODS`（`GET, OPTIONS`）⇒ 既有调用点**逐字不变**。
  */
-export function handlePreflight(req, res) {
+export function handlePreflight(req, res, allowMethods = CORS_ALLOW_METHODS) {
   if (!isPreflight(req)) return false
   res.statusCode = 204
   res.setHeader('Access-Control-Allow-Origin', CORS_ALLOW_ORIGIN)
-  res.setHeader('Access-Control-Allow-Methods', CORS_ALLOW_METHODS)
+  res.setHeader('Access-Control-Allow-Methods', allowMethods)
   res.setHeader('Access-Control-Allow-Headers', CORS_ALLOW_HEADERS)
   res.setHeader('Access-Control-Max-Age', CORS_MAX_AGE)
   // 与全站口径一致：预检响应不入客户端 / 边缘缓存（真正管预检复用的是 Max-Age）。

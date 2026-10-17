@@ -3,15 +3,17 @@
  *
  * 判定顺序（三端点一致，勿改）：
  *   1) 方法非 GET               ⇒ 405 METHOD_NOT_ALLOWED（带 Allow: GET）
- *   2) 未配置 `YINYUAN_API_KEY`  ⇒ 503 NOT_CONFIGURED
- *   3) key 缺失或不匹配          ⇒ 401 UNAUTHORIZED
- *   4) 未配置任一 `CB_*`         ⇒ 503 NOT_CONFIGURED（**不回落假数据/静态快照**）
- *   5) 实例级缓存命中            ⇒ 200（**不再打云库**；键含鉴权指纹；只缓存成功数据）
- *   6) 取数失败                 ⇒ 500 INTERNAL_ERROR（对外只给固定文案，细节只进服务端日志）
+ *   2) 鉴权（`checkApiKeyAsync`，**env 机构钥匙在前、DB 客户钥匙在后**）
+ *      2a) 未配置 env 且 DB 查不可用 ⇒ 503 NOT_CONFIGURED（fail-closed）
+ *      2b) key 缺失或不匹配          ⇒ 401 UNAUTHORIZED
+ *      2c) 客户 key 命中但**归属账号已停用** ⇒ 401 UNAUTHORIZED（B2：停用即失效）
+ *   3) 未配置任一 `CB_*`         ⇒ 503 NOT_CONFIGURED（**不回落假数据/静态快照**）
+ *   4) 实例级缓存命中            ⇒ 200（**不再打云库**；键含鉴权指纹；只缓存成功数据）
+ *   5) 取数失败                 ⇒ 500 INTERNAL_ERROR（对外只给固定文案，细节只进服务端日志）
  *
  * 每个 handler 都是 Vercel 可直接调用的默认导出 `(req, res) => Promise<void>`。
  */
-import { checkApiKey, extractApiKey } from './auth.js'
+import { AUTH_VIA, checkApiKeyAsync, checkKeyOwner, extractApiKey } from './auth.js'
 import { isCloudBaseConfigured } from './cloudbase.js'
 import { handlePreflight } from './cors.js'
 import { authFingerprint, cacheKeyOf, markHit, markMiss, readCache, writeCache } from './instance-cache.js'
@@ -46,7 +48,7 @@ function describeMessage(error) {
   return raw.replace(/[\r\n\t]+/g, ' ').slice(0, 160)
 }
 
-export function createGetHandler(routeName, run) {
+export function createGetHandler(routeName, run, authOptions = {}) {
   return async function handler(req, res) {
     const startedAt = Date.now()
     try {
@@ -60,8 +62,23 @@ export function createGetHandler(routeName, run) {
         return failWith(res, 405, 'METHOD_NOT_ALLOWED')
       }
 
-      const authResult = checkApiKey(req)
+      // ★ B2 接线（2026-10-18）：同步 `checkApiKey` ⇒ 异步 `checkApiKeyAsync`（**必须 await**）。
+      //   env 机构钥匙在同一 tick 内命中并返回（**任何 await 之前**）⇒ 现网调用方延迟与行为零变化；
+      //   env 未命中才走 DB 客户钥匙（多一次云库读）。`authOptions` 仅供自检注入 `{db, track}`，
+      //   生产默认 `{}` ⇒ 走 CloudBase。回滚：本行改回 `checkApiKey(req)`（同步入口一直保留）。
+      const authResult = await checkApiKeyAsync(req, authOptions)
       if (!authResult.ok) return failWith(res, authResult.status, authResult.reason)
+
+      // ★ B2 安全硬要求：**停用账号 ⇒ 其 API Key 立即失效**。
+      //   在「数据端点」复核（而非 `verifyKey` 内部）：env 机构钥匙不触库、零额外延迟；
+      //   客户钥匙命中后按 `user_id` 读一次 `yinyuan_users` 复核 `status==='active'`。
+      //   失败面：停用/找不到账号 ⇒ 401 UNAUTHORIZED（不泄漏「账号存在但被停用」）；
+      //   存储不可用 ⇒ env 已配置时 401（不向探测者报告服务端状态），否则 503。
+      //   位置钉在**限流与实例缓存之前** ⇒ 被停用的 key 既不计数、也取不到缓存体。
+      if (authResult.via === AUTH_VIA.KEY) {
+        const owner = await checkKeyOwner(authResult.userId, authOptions)
+        if (!owner.ok) return failWith(res, owner.status, owner.reason)
+      }
 
       if (!isCloudBaseConfigured()) return failWith(res, 503, 'NOT_CONFIGURED')
 

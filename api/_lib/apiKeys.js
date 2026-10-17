@@ -10,6 +10,7 @@
  *        prefix:       'yy_<明文前 8 位>',           // 只作界面辨识，**不足以校验**
  *        status:       'active' | 'revoked',
  *        created_at:   '<UTC ISO8601>',
+ *        expires_at:   '<UTC ISO8601>' | null,      // B2：`ttl` 口径；null ＝ 不过期
  *        last_used_at: '<UTC ISO8601>' | null,
  *        call_count:   <整数>,
  *        revoked_at:   '<UTC ISO8601>' | null,
@@ -28,6 +29,7 @@
  *      KEY_FORMAT_INVALID   不像本系统签发的 key（无库查询，直接拒）
  *      KEY_INVALID          查无此 key
  *      KEY_REVOKED          有这把、但已撤销/停用
+ *      KEY_EXPIRED          有这把、但已过 `expires_at`（B2 新增：`ttl` 口径）
  *      KEY_NOT_ACTIVE       rotate 的目标不是 active
  *      NOT_FOUND            按 id 找不到
  *      INVALID_INPUT        创建参数不合法
@@ -55,10 +57,15 @@ const PREFIX_KEEP = 8
 /** 单账号列表上限（避免无界读）。 */
 export const LIST_LIMIT = 200
 
+/** key 有效期口径（B2）：最短 60 秒、最长 365 天；`ttl` 缺省 ⇒ 不过期。 */
+export const MIN_KEY_TTL_SECONDS = 60
+export const MAX_KEY_TTL_SECONDS = 365 * 24 * 60 * 60
+
 export const REASONS = Object.freeze({
   KEY_FORMAT_INVALID: 'KEY_FORMAT_INVALID',
   KEY_INVALID: 'KEY_INVALID',
   KEY_REVOKED: 'KEY_REVOKED',
+  KEY_EXPIRED: 'KEY_EXPIRED',
   KEY_NOT_ACTIVE: 'KEY_NOT_ACTIVE',
   NOT_FOUND: 'NOT_FOUND',
   INVALID_INPUT: 'INVALID_INPUT',
@@ -116,6 +123,7 @@ export function toPublicKey(row) {
     label: row.label || null,
     status: row.status || 'active',
     createdAt: row.created_at || null,
+    expiresAt: row.expires_at || null,
     lastUsedAt: row.last_used_at || null,
     callCount: typeof row.call_count === 'number' ? row.call_count : 0,
     revokedAt: row.revoked_at || null,
@@ -151,6 +159,17 @@ export async function create(db, input) {
   const rawLabel = input && input.label !== undefined && input.label !== null ? String(input.label) : ''
   const label = (rawLabel.trim() || '默认密钥').slice(0, 64)
 
+  // ★ 有效期（B2 `ttl` 口径）：缺省 null ＝ 不过期；给了就必须是 [60s, 365d] 的整数秒。
+  let expiresAt = null
+  const rawTtl = input && input.ttlSeconds
+  if (rawTtl !== undefined && rawTtl !== null) {
+    const ttl = Math.floor(Number(rawTtl))
+    if (!Number.isFinite(ttl) || ttl < MIN_KEY_TTL_SECONDS || ttl > MAX_KEY_TTL_SECONDS) {
+      return { ok: false, reason: REASONS.INVALID_INPUT }
+    }
+    expiresAt = new Date(new Date(nowIso(input && input.now)).getTime() + ttl * 1000).toISOString()
+  }
+
   // 32 字节随机 ⇒ id 冲突概率可忽略；仍给 2 次重铸，避免把极小概率当异常
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const plain = `${KEY_PREFIX}${randomBytes(KEY_RANDOM_BYTES).toString('base64url')}`
@@ -163,6 +182,7 @@ export async function create(db, input) {
       prefix: prefixOf(plain),
       status: 'active',
       created_at: nowIso(input && input.now),
+      expires_at: expiresAt,
       last_used_at: null,
       call_count: 0,
       revoked_at: null,
@@ -205,6 +225,13 @@ export async function verifyKey(db, plain) {
       return { ok: false, reason: REASONS.KEY_INVALID }
     }
     if (row.status !== 'active') return { ok: false, reason: REASONS.KEY_REVOKED }
+    // ★ 有效期（B2）：`expires_at` 缺省/为空 ＝ 不过期；过期按「已撤销」同形拒（不区分原因给调用方）
+    if (row.expires_at) {
+      const expiresMs = Date.parse(String(row.expires_at))
+      if (Number.isFinite(expiresMs) && Date.now() > expiresMs) {
+        return { ok: false, reason: REASONS.KEY_EXPIRED }
+      }
+    }
     return { ok: true, userId: row.user_id, keyId: row._id || null }
   } catch (error) {
     return storageFailure('verifyKey', error)
@@ -290,6 +317,45 @@ export async function rotate(db, keyId, options = {}) {
     console.error(`[api] apiKeys rotate revoke-old failed: ${describeStorageError(error)}`)
   }
   return { ok: true, plain: created.plain, key: created.key, revokedId: keyId, revoked }
+}
+
+/**
+ * 归属查询（B2 授权面）：只回 `user_id`，**不回 key_hash / 明文**。
+ * 找不到 ⇒ `{ok:true, userId:''}`（调用方按 `404 NOT_FOUND` 处理，避免泄露存在性）。
+ * @returns {Promise<{ok:true, keyId:string, userId:string}|{ok:false, reason:string}>}
+ */
+export async function ownerOf(db, keyId) {
+  if (typeof keyId !== 'string' || keyId === '') return { ok: false, reason: REASONS.INVALID_INPUT }
+  const current = await getById(db, keyId)
+  if (!current.ok) return current
+  if (!current.row) return { ok: true, keyId, userId: '' }
+  return { ok: true, keyId, userId: String(current.row.user_id || '') }
+}
+
+/**
+ * 改状态（B2 `PATCH /keys/{kid}`：`active` ⇄ `revoked`；**只改状态、不删行**）。
+ * `revoked` 走 `revoke()`（幂等）；`active` 只清 `revoked_at`，保留 `rotated_*` 审计痕迹。
+ * @returns {Promise<{ok:true, key:object, unchanged?:boolean}|{ok:false, reason:string}>}
+ */
+export async function setKeyStatus(db, keyId, status, now) {
+  if (typeof keyId !== 'string' || keyId === '') return { ok: false, reason: REASONS.INVALID_INPUT }
+  const wanted = String(status)
+  if (wanted !== 'active' && wanted !== 'revoked') return { ok: false, reason: REASONS.INVALID_INPUT }
+  if (wanted === 'revoked') return revoke(db, keyId, now)
+
+  const current = await getById(db, keyId)
+  if (!current.ok) return current
+  if (!current.row) return { ok: false, reason: REASONS.NOT_FOUND }
+  if (current.row.status === 'active') {
+    return { ok: true, key: toPublicKey(current.row), unchanged: true }
+  }
+  try {
+    const result = await db.collection(COLLECTION).doc(keyId).update({ status: 'active', revoked_at: null })
+    if (isFailedResult(result)) throw new Error(result.message || 'update failed')
+    return { ok: true, key: toPublicKey({ ...current.row, status: 'active', revoked_at: null }) }
+  } catch (error) {
+    return storageFailure('setKeyStatus', error)
+  }
 }
 
 /**
