@@ -23,6 +23,52 @@ export function cbHandleAgeMs() {
   return handleCreatedAt === 0 ? -1 : Date.now() - handleCreatedAt
 }
 
+/**
+ * ★ 句柄寿命上限（2026-10-17 暖实例死句柄修复）。
+ *
+ * 现象（线上读数）：同一暖实例内 `handleAgeMs` 一路涨到 ≈1,092,000ms（≈18 分钟），
+ * 期间 `authors` 的每次取数都在**建连阶段** ETIMEDOUT（attempts=3 全失败），
+ * 而同刻 `dynasties` 因命中实例缓存（日志 `cache=hit ms=0`）看起来正常。
+ * 即：**长期复用的 SDK 句柄里的 keepalive 连接被网关/NAT 静默收掉后不会自愈**，
+ * 且「拿同一个死连接重试三次」必然三次都失败。
+ *
+ * ⇒ 预防项：句柄超过本上限即**主动重建**（新 app ⇒ 新连接池），默认 120s，
+ *   可用环境变量 `CB_HANDLE_MAX_AGE_MS` 覆盖（下限钳 1000ms，避免误配成每请求重建）。
+ */
+function handleMaxAgeMs() {
+  const raw = process.env.CB_HANDLE_MAX_AGE_MS
+  const n = typeof raw === 'string' ? Number(raw.trim()) : NaN
+  if (!Number.isFinite(n) || n <= 0) return 120 * 1000
+  return Math.max(1000, Math.floor(n))
+}
+
+/** 重建/作废句柄的服务端日志（**不含**凭据、key、URL、堆栈）。 */
+function logRebuild(reason, ageMs) {
+  console.warn(
+    `[api] cb handle handleRebuilt=1 rebuiltReason=${reason} handleAgeMs=${ageMs}`
+  )
+}
+
+/**
+ * ★ 作废旧句柄（失败后丢弃；2026-10-17 死句柄修复）。
+ *
+ * 由 `dataset.js` 在任一取数遇**瞬时错**（ETIMEDOUT 等）时调用：
+ * 死连接必须当场丢掉，下一次尝试/下一个请求才可能拿到活连接。
+ * 只作废「调用方实际在用的那一个」句柄（`staleDb` 比对）—— 并发分支里
+ * 已有人先重建时，后来者不会把新句柄又打掉。
+ *
+ * @returns {boolean} 是否真的作废了（false ＝ 已有别的分支先重建）
+ */
+export function invalidateDb(reason = 'transient', staleDb = null) {
+  if (!cached) return false
+  if (staleDb && cached.db !== staleDb) return false
+  const ageMs = cbHandleAgeMs()
+  cached = null
+  handleCreatedAt = 0
+  logRebuild(reason, ageMs)
+  return true
+}
+
 /** 读取并规整云端凭据（不回显值）。 */
 export function cbConfig() {
   const read = (name) => (typeof process.env[name] === 'string' ? process.env[name].trim() : '')
@@ -51,7 +97,15 @@ export function getDb() {
   const cfg = cbConfig()
   if (!cfg.configured) throw new NotConfiguredError('cloudbase credentials missing')
   const cacheKey = `${cfg.env}|${cfg.secretId}|${cfg.secretKey}`
-  if (cached && cached.cacheKey === cacheKey) return cached.db
+  if (cached) {
+    const ageMs = cbHandleAgeMs()
+    const sameConfig = cached.cacheKey === cacheKey
+    if (sameConfig && ageMs >= 0 && ageMs < handleMaxAgeMs()) return cached.db
+    // 超过寿命上限（或凭据变更）⇒ 主动重建，不等它坏掉
+    cached = null
+    handleCreatedAt = 0
+    logRebuild(sameConfig ? 'age' : 'config', ageMs)
+  }
   const app = tcb.init({
     env: cfg.env,
     secretId: cfg.secretId,
@@ -59,7 +113,8 @@ export function getDb() {
     timeout: CB_REQUEST_TIMEOUT_MS
   })
   const db = app.database()
-  cached = { cacheKey, db }
-  handleCreatedAt = Date.now()
+  const createdAt = Date.now()
+  cached = { cacheKey, db, createdAt }
+  handleCreatedAt = createdAt
   return db
 }

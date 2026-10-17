@@ -10,8 +10,8 @@
  *   （建连阶段 ETIMEDOUT）而该 SDK 默认不重试 —— 这类抖动重试一次通常即成功；
  *   非瞬时错误（参数非法/未配置/应用级）**立即抛出**，不重试。
  */
-import { cbHandleAgeMs } from './cloudbase.js'
-import { describeError, withTransientRetry } from './resilience.js'
+import { cbHandleAgeMs, getDb, invalidateDb } from './cloudbase.js'
+import { describeError, isTransientError, withTransientRetry } from './resilience.js'
 
 /**
  * ★ 云库读操作的**诊断计时**（2026-10-17 并发修复；只进服务端日志）。
@@ -22,11 +22,12 @@ import { describeError, withTransientRetry } from './resilience.js'
  * 纪律：**不含**凭据、请求参数、URL、堆栈；标签只含集合名（集合名在 §7.10-2 内属可入服务端日志的面）。
  */
 let opSeq = 0
-function logOp({ label, ms, attempts, ok, code }) {
+function logOp({ label, ms, attempts, ok, code, rebuilt, reason }) {
   opSeq += 1
   console.log(
     `[api] cb op=${label} ms=${ms} attempts=${attempts} opSeq=${opSeq} first=${opSeq === 1 ? 1 : 0}` +
-      ` handleAgeMs=${cbHandleAgeMs()} ok=${ok ? 1 : 0}${code ? ` code=${code}` : ''}`
+      ` handleAgeMs=${cbHandleAgeMs()} ok=${ok ? 1 : 0}${code ? ` code=${code}` : ''}` +
+      ` handleRebuilt=${rebuilt}${reason ? ` rebuiltReason=${reason}` : ''}`
   )
 }
 
@@ -34,26 +35,56 @@ function logOp({ label, ms, attempts, ok, code }) {
  * 包一层：有界重试 + 逐操作计时。失败时先记一行带错误码的诊断，再把原错误抛出
  * （对外仍由 handler 统一落 500）。
  */
-async function runRead(label, fn) {
+async function runRead(label, db, fn) {
   let attempts = 0
+  let rebuilt = 0
+  let reason = ''
+  let current = db
   const started = Date.now()
   try {
     const value = await withTransientRetry(async () => {
       attempts += 1
-      return await fn()
+      try {
+        // ★ 传「当前」句柄而不是闭包里的旧句柄：重试必须用**重建后**的连接。
+        return await fn(current)
+      } catch (error) {
+        if (!isTransientError(error)) throw error
+        // ★ 2026-10-17 死句柄修复：任一次瞬时错（ETIMEDOUT 等）⇒ 当场丢弃当前句柄。
+        //   理由（线上读数）：暖实例里 keepalive 连接被网关/NAT 静默收掉后**不会自愈**，
+        //   拿同一个死连接重试 3 次必然 3 次全失败（日志：attempts=3 全 ETIMEDOUT）。
+        //   只作废「自己正在用的那一个」，并发分支已重建时不误伤新句柄。
+        if (invalidateDb('transient', current)) {
+          rebuilt += 1
+          reason = 'transient'
+        }
+        try {
+          current = getDb()
+        } catch (rebuildError) {
+          // 未配置/不可建 ⇒ 保持原引用，按原错误上抛（由 handler 落 500/503，契约不变）
+        }
+        throw error
+      }
     }, { label })
-    logOp({ label, ms: Date.now() - started, attempts, ok: true })
+    logOp({ label, ms: Date.now() - started, attempts, ok: true, rebuilt, reason })
     return value
   } catch (error) {
-    logOp({ label, ms: Date.now() - started, attempts, ok: false, code: describeError(error) })
+    logOp({
+      label,
+      ms: Date.now() - started,
+      attempts,
+      ok: false,
+      code: describeError(error),
+      rebuilt,
+      reason
+    })
     throw error
   }
 }
 
 /** 集合总条数。 */
 export async function countDocs(db, collection) {
-  return runRead(`count:${collection}`, async () => {
-    const res = await db.collection(collection).count()
+  return runRead(`count:${collection}`, db, async (handle) => {
+    const res = await handle.collection(collection).count()
     return typeof res.total === 'number' ? res.total : 0
   })
 }
@@ -64,8 +95,8 @@ export async function countDocs(db, collection) {
  */
 export async function fetchPage(db, collection, offset, limit) {
   if (limit <= 0) return []
-  return runRead(`page:${collection}`, async () => {
-    const res = await db
+  return runRead(`page:${collection}`, db, async (handle) => {
+    const res = await handle
       .collection(collection)
       .orderBy('_id', 'asc')
       .skip(offset)
@@ -91,8 +122,8 @@ const AGG_BUCKET_LIMIT = 1000
  */
 export async function countByField(db, collection, field) {
   const $ = db.command.aggregate
-  const res = await runRead(`aggregate:${collection}.${field}`, async () => {
-    return await db
+  const res = await runRead(`aggregate:${collection}.${field}`, db, async (handle) => {
+    return await handle
       .collection(collection)
       .aggregate()
       .group({ _id: `$${field}`, n: $.sum(1) })
