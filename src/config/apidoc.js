@@ -30,6 +30,14 @@ import { endpointBlocks } from './apidoc-endpoints.js'
 const clauseBlocks = [
   { type: 'h2', t: '接口清单' },
   {
+    type: 'p',
+    parts: [
+      {
+        t: '说明：下列第 1～6 项接口仍在规划中，暂未开放；如需当前可用能力，请使用已上线的朝代、作者、印文三个接口。',
+      },
+    ],
+  },
+  {
     type: 'table',
     head: [[{ t: '接口' }], [{ t: 'Method' }], [{ t: '路径' }], [{ t: '简述' }], [{ t: '限流规则' }]],
     rows: [

@@ -21,9 +21,17 @@
 
 export const endpointBlocks = [
   { type: 'h2', t: '2 接口文档' },
+  {
+    type: 'p',
+    parts: [
+      {
+        t: '说明：本章 2.1～2.6 六个接口仍在规划中，暂未开放；如需当前可用能力，请使用已上线的朝代、作者、印文三个接口。',
+      },
+    ],
+  },
 
   /* ---------------- 2.1 ---------------- */
-  { type: 'h3', t: '2.1 GET /all' },
+  { type: 'h3', t: '2.1 GET /all（规划中，暂未开放）' },
   {
     type: 'quote',
     lines: [
@@ -62,7 +70,7 @@ export const endpointBlocks = [
   { type: 'hr' },
 
   /* ---------------- 2.2 ---------------- */
-  { type: 'h3', t: '2.2 GET /preview/{resourceId}' },
+  { type: 'h3', t: '2.2 GET /preview/{resourceId}（规划中，暂未开放）' },
   {
     type: 'quote',
     lines: [
@@ -101,7 +109,7 @@ export const endpointBlocks = [
   { type: 'hr' },
 
   /* ---------------- 2.3 ---------------- */
-  { type: 'h3', t: '2.3 GET /preview/batch' },
+  { type: 'h3', t: '2.3 GET /preview/batch（规划中，暂未开放）' },
   {
     type: 'quote',
     lines: [
@@ -152,7 +160,7 @@ export const endpointBlocks = [
   { type: 'hr' },
 
   /* ---------------- 2.4 ---------------- */
-  { type: 'h3', t: '2.4 GET /detail/{resourceId}' },
+  { type: 'h3', t: '2.4 GET /detail/{resourceId}（规划中，暂未开放）' },
   {
     type: 'quote',
     lines: [
@@ -182,7 +190,7 @@ export const endpointBlocks = [
   { type: 'hr' },
 
   /* ---------------- 2.5 ---------------- */
-  { type: 'h3', t: '2.5 GET /search/' },
+  { type: 'h3', t: '2.5 GET /search/（规划中，暂未开放）' },
   {
     type: 'quote',
     lines: [
@@ -206,7 +214,7 @@ export const endpointBlocks = [
   { type: 'hr' },
 
   /* ---------------- 2.6 ---------------- */
-  { type: 'h3', t: '2.6 GET /bill' },
+  { type: 'h3', t: '2.6 GET /bill（规划中，暂未开放）' },
   {
     type: 'quote',
     lines: [
