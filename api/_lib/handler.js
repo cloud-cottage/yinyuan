@@ -6,12 +6,14 @@
  *   2) 未配置 `YINYUAN_API_KEY`  ⇒ 503 NOT_CONFIGURED
  *   3) key 缺失或不匹配          ⇒ 401 UNAUTHORIZED
  *   4) 未配置任一 `CB_*`         ⇒ 503 NOT_CONFIGURED（**不回落假数据/静态快照**）
- *   5) 取数失败                 ⇒ 500 INTERNAL_ERROR（对外只给固定文案，细节只进服务端日志）
+ *   5) 实例级缓存命中            ⇒ 200（**不再打云库**；键含鉴权指纹；只缓存成功数据）
+ *   6) 取数失败                 ⇒ 500 INTERNAL_ERROR（对外只给固定文案，细节只进服务端日志）
  *
  * 每个 handler 都是 Vercel 可直接调用的默认导出 `(req, res) => Promise<void>`。
  */
-import { checkApiKey } from './auth.js'
+import { checkApiKey, extractApiKey } from './auth.js'
 import { isCloudBaseConfigured } from './cloudbase.js'
+import { authFingerprint, cacheKeyOf, markHit, markMiss, readCache, writeCache } from './instance-cache.js'
 import { getSearchParams } from './pagination.js'
 import { READ_DEADLINE_MS, describeError, withDeadline } from './resilience.js'
 import { InvalidParamError, NotConfiguredError, fail, failWith, ok } from './respond.js'
@@ -44,6 +46,7 @@ function describeMessage(error) {
 
 export function createGetHandler(routeName, run) {
   return async function handler(req, res) {
+    const startedAt = Date.now()
     try {
       const method = String((req && req.method) || 'GET').toUpperCase()
       if (method !== 'GET') {
@@ -56,8 +59,28 @@ export function createGetHandler(routeName, run) {
 
       if (!isCloudBaseConfigured()) return failWith(res, 503, 'NOT_CONFIGURED')
 
+      // ★ 实例级缓存（2026-10-17 并发修复）：**鉴权通过之后**才查缓存，
+      //   且缓存键内含**鉴权指纹**（sha256(key) 前 16 位）⇒ 金钥错配取不到别人的 200 缓存体；
+      //   错误面（401/405/503/500）走各自分支，永不读也永不写本缓存。
+      const cacheKey = cacheKeyOf(routeName, req, authFingerprint(extractApiKey(req)))
+      const cached = readCache(cacheKey)
+      if (cached !== null) {
+        markHit()
+        // 诊断：只记路由 + 请求形状（limit/offset 白名单化）+ 毫秒；不含 key、不含缓存键原文
+        console.log(
+          `[api/${routeName}] ok cache=hit ms=${Date.now() - startedAt} params=${describeShape(req)}`
+        )
+        return ok(res, cached)
+      }
+      markMiss()
+
       // 取数带**请求级软截止**：到点由本服务回 500（契约内），不落到平台层函数超时页
       const data = await withDeadline(run(req), READ_DEADLINE_MS)
+      // ★ 只有成功取数才写缓存（失败分支在 catch 里，不经过这里）
+      writeCache(cacheKey, data)
+      console.log(
+        `[api/${routeName}] ok cache=miss ms=${Date.now() - startedAt} params=${describeShape(req)}`
+      )
       return ok(res, data)
     } catch (error) {
       if (error instanceof InvalidParamError) {

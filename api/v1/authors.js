@@ -36,7 +36,12 @@ function mapPerson(doc) {
 export default createGetHandler('v1/authors', async (req) => {
   const { limit, offset } = parsePaging(req)
   const db = getDb()
-  const total = await countDocs(db, 'xiai_persons')
-  const rows = offset >= total ? [] : await fetchPage(db, 'xiai_persons', offset, limit)
-  return { total, limit, offset, items: rows.map(mapPerson) }
+  // ★ 单轮往返（2026-10-17 并发修复）：计数与取页**并行发出**（旧实现先 count、再取页 = 2 轮）。
+  //   越界（offset ≥ total）时丢弃取回的行、仍回空 items —— 契约不变；
+  //   代价：越界请求由 1 次云库调用变 2 次（与常见路径一致），换取常见路径少一轮建连。
+  const [total, rows] = await Promise.all([
+    countDocs(db, 'xiai_persons'),
+    fetchPage(db, 'xiai_persons', offset, limit)
+  ])
+  return { total, limit, offset, items: offset >= total ? [] : rows.map(mapPerson) }
 })

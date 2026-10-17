@@ -10,14 +10,52 @@
  *   （建连阶段 ETIMEDOUT）而该 SDK 默认不重试 —— 这类抖动重试一次通常即成功；
  *   非瞬时错误（参数非法/未配置/应用级）**立即抛出**，不重试。
  */
-import { withTransientRetry } from './resilience.js'
+import { cbHandleAgeMs } from './cloudbase.js'
+import { describeError, withTransientRetry } from './resilience.js'
+
+/**
+ * ★ 云库读操作的**诊断计时**（2026-10-17 并发修复；只进服务端日志）。
+ *
+ * 为什么：并发 500 的真因是**建连阶段**超时（`connect timeout` / `ETIMEDOUT`），
+ * 要判「是不是函数执行区离云库太远的线路问题」必须有**逐操作毫秒数**的前后对比读数。
+ * 每次读操作记一行：操作标签 + 毫秒 + 尝试次数 + 是否本实例首个操作 + 句柄年龄。
+ * 纪律：**不含**凭据、请求参数、URL、堆栈；标签只含集合名（集合名在 §7.10-2 内属可入服务端日志的面）。
+ */
+let opSeq = 0
+function logOp({ label, ms, attempts, ok, code }) {
+  opSeq += 1
+  console.log(
+    `[api] cb op=${label} ms=${ms} attempts=${attempts} opSeq=${opSeq} first=${opSeq === 1 ? 1 : 0}` +
+      ` handleAgeMs=${cbHandleAgeMs()} ok=${ok ? 1 : 0}${code ? ` code=${code}` : ''}`
+  )
+}
+
+/**
+ * 包一层：有界重试 + 逐操作计时。失败时先记一行带错误码的诊断，再把原错误抛出
+ * （对外仍由 handler 统一落 500）。
+ */
+async function runRead(label, fn) {
+  let attempts = 0
+  const started = Date.now()
+  try {
+    const value = await withTransientRetry(async () => {
+      attempts += 1
+      return await fn()
+    }, { label })
+    logOp({ label, ms: Date.now() - started, attempts, ok: true })
+    return value
+  } catch (error) {
+    logOp({ label, ms: Date.now() - started, attempts, ok: false, code: describeError(error) })
+    throw error
+  }
+}
 
 /** 集合总条数。 */
 export async function countDocs(db, collection) {
-  return withTransientRetry(async () => {
+  return runRead(`count:${collection}`, async () => {
     const res = await db.collection(collection).count()
     return typeof res.total === 'number' ? res.total : 0
-  }, { label: `count:${collection}` })
+  })
 }
 
 /**
@@ -26,7 +64,7 @@ export async function countDocs(db, collection) {
  */
 export async function fetchPage(db, collection, offset, limit) {
   if (limit <= 0) return []
-  return withTransientRetry(async () => {
+  return runRead(`page:${collection}`, async () => {
     const res = await db
       .collection(collection)
       .orderBy('_id', 'asc')
@@ -34,7 +72,7 @@ export async function fetchPage(db, collection, offset, limit) {
       .limit(limit)
       .get()
     return Array.isArray(res.data) ? res.data : []
-  }, { label: `page:${collection}` })
+  })
 }
 
 /**
@@ -53,14 +91,14 @@ const AGG_BUCKET_LIMIT = 1000
  */
 export async function countByField(db, collection, field) {
   const $ = db.command.aggregate
-  const res = await withTransientRetry(async () => {
+  const res = await runRead(`aggregate:${collection}.${field}`, async () => {
     return await db
       .collection(collection)
       .aggregate()
       .group({ _id: `$${field}`, n: $.sum(1) })
       .limit(AGG_BUCKET_LIMIT)
       .end()
-  }, { label: `aggregate:${collection}.${field}` })
+  })
   const rows = Array.isArray(res.data) ? res.data : []
   if (rows.length >= AGG_BUCKET_LIMIT) {
     // 触到上限即可能截断：只记服务端日志，不改写对外数据（宁可如实少、也不编造）
@@ -84,6 +122,10 @@ export async function countByField(db, collection, field) {
 /**
  * 跨多个集合按「集合顺序 + 各集合内 `_id` 升序」拼一页。
  * sources: [{ collection, key, map, total }]（total 由调用方一次 count 后传入）
+ *
+ * ★ 2026-10-17：`inscriptions` 已改为「首集合取页 + 两集合计数并行」的单轮往返路径
+ *   （见 `api/v1/inscriptions.js`），本函数**暂无调用点**；保留它是为把「合并页语义」
+ *   留成一处可读的参考实现（改分页口径时两头对照用），不是死代码里的隐藏依赖。
  */
 export async function fetchMergedPage(db, sources, offset, limit) {
   const items = []

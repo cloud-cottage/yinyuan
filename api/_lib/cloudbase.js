@@ -13,6 +13,16 @@ import { CB_REQUEST_TIMEOUT_MS } from './resilience.js'
 
 let cached = null
 
+/**
+ * 本实例内**首个** database 句柄的创建时刻（ms）。诊断用：配合 dataset.js 的操作计时，
+ * 可读出「实例从拿到句柄到首个云库读完成」的耗时（≈ 建连 + 首查），供区域/线路前后对比。
+ * 未创建过句柄 ⇒ 返回 -1。
+ */
+let handleCreatedAt = 0
+export function cbHandleAgeMs() {
+  return handleCreatedAt === 0 ? -1 : Date.now() - handleCreatedAt
+}
+
 /** 读取并规整云端凭据（不回显值）。 */
 export function cbConfig() {
   const read = (name) => (typeof process.env[name] === 'string' ? process.env[name].trim() : '')
@@ -50,5 +60,6 @@ export function getDb() {
   })
   const db = app.database()
   cached = { cacheKey, db }
+  handleCreatedAt = Date.now()
   return db
 }

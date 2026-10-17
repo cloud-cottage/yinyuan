@@ -24,6 +24,24 @@ export const MESSAGES = Object.freeze({
   INTERNAL_ERROR: '数据读取失败，请稍后重试。'
 })
 
+/**
+ * ★ 200 面的边缘缓存指令（2026-10-17 并发修复）。
+ *
+ * 契约面（**逐字不变**）：`Cache-Control: no-store` 在**三端点 × 全部状态码**上照旧（§7.10-2 ／ AC-102⑤）。
+ * 并发面（新增）：仅 **200** 追加 `Vercel-CDN-Cache-Control`（Vercel 专属 CDN 缓存指令）
+ *   ＋ `Vary: Authorization, X-API-Key`（把鉴权头值纳入边缘缓存键）。
+ *
+ * 三条硬约束：
+ *  1) **错误面不缓存**：400 / 401 / 404 / 405 / 500 / 503 **不追加** CDN 指令 ⇒ 平台按
+ *     `Cache-Control: no-store` 处理，不入边缘缓存（反证读数见 qa-recheck 报告）。
+ *  2) **鉴权不降级**：`Vary` 让「带正确 key 的请求」与「无 key / 错 key 的请求」落在**不同**缓存条目上
+ *     ⇒ 无 key 请求永远拿不到别人的 200 缓存体（且它本来就该拿 401）。
+ *  3) **客户端可见面不变**：`Vercel-CDN-Cache-Control` 由 Vercel 代理消费后**不回传客户端**
+ *     ⇒ 客户端看到的响应头与修复前**逐字一致**（`Cache-Control: no-store` 仍是那个值）。
+ */
+export const SUCCESS_CDN_CACHE_CONTROL = 'public, s-maxage=60, stale-while-revalidate=300'
+export const SUCCESS_CACHE_VARY = 'Authorization, X-API-Key'
+
 export function sendJson(res, status, payload) {
   const body = JSON.stringify(payload)
   res.statusCode = status
@@ -34,6 +52,9 @@ export function sendJson(res, status, payload) {
 }
 
 export function ok(res, data) {
+  // ★ 只有 200 走这里 ⇒ 只有成功面挂边缘缓存指令；错误面（fail / failWith）永远不挂。
+  res.setHeader('Vercel-CDN-Cache-Control', SUCCESS_CDN_CACHE_CONTROL)
+  res.setHeader('Vary', SUCCESS_CACHE_VARY)
   sendJson(res, 200, { ok: true, data })
 }
 
