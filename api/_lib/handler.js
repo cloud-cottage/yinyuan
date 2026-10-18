@@ -17,6 +17,7 @@ import { AUTH_VIA, checkApiKeyAsync, checkKeyOwner, extractApiKey } from './auth
 import { isCloudBaseConfigured } from './cloudbase.js'
 import { handlePreflight } from './cors.js'
 import { authFingerprint, cacheKeyOf, markHit, markMiss, readCache, writeCache } from './instance-cache.js'
+import { startMetering } from './metering.js'
 import { getSearchParams } from './pagination.js'
 import { enforceRateLimit } from './ratelimit.js'
 import { READ_DEADLINE_MS, describeError, withDeadline } from './resilience.js'
@@ -51,6 +52,8 @@ function describeMessage(error) {
 export function createGetHandler(routeName, run, authOptions = {}) {
   return async function handler(req, res) {
     const startedAt = Date.now()
+    /** 计量上下文（计数点之前为 null ⇒ catch 分支不计数；见下方埋点注释）。 */
+    let metering = null
     try {
       const method = String((req && req.method) || 'GET').toUpperCase()
       // ★ CORS 预检（v1.42 §7.13-3 ④ ／ ⑥）：`OPTIONS` ＋ `Origin` ＋
@@ -90,6 +93,22 @@ export function createGetHandler(routeName, run, authOptions = {}) {
       const withinQuota = await enforceRateLimit(req, res, extractApiKey(req))
       if (!withinQuota) return undefined
 
+      // ★ 用量计量（2026-10-19「API 调用计量地基」）：计数点钉在**鉴权通过 + 限流之后、
+      //   实例缓存分支之前** —— 缓存命中也要计（口径 1）；`401/404/405/OPTIONS/429/503`
+      //   在到达本行之前就已返回 ⇒ 一律不计数。`startMetering` 只登记上下文，
+      //   真正的写盘在**响应落盘之前** `await finish()`（**永不改响应体、永不抛出**，
+      //   见 metering.js）。
+      //   `authResult.via` 非 `env`/`key`（如未来的 `Session` 通道）⇒ `subject` 为 null ⇒ 不计。
+      //
+      // ★ 为什么必须「先写完、再回包」（2026-10-19 实测根因，勿改回「回包后再写」）：
+      //   平台在响应完成那一刻就冻结/回收执行环境 —— 不是「慢」，是**上下文已终止**。
+      //   实测读数（vercel dev ＋ 真实云库）：`create` 发出后既无成功回调、也无 1500ms
+      //   超时定时器回调（8s 后日志仍停在 `persistRecord start`，云库 0 行）；同一段
+      //   `recordApiCall` 在普通 node 进程里 285–295ms 成功落库 ⇒ 写链本身没问题，
+      //   丢的是「响应之后的异步续体」。因此计量写一律**在 `sendJson` 之前** await，
+      //   由 `METERING_TIMEOUT_MS`（1500ms）封顶，最坏只慢 1.5s、绝不影响状态码与响应体。
+      metering = startMetering({ req, authResult, routeName, startedAt, db: authOptions.meteringDb })
+
       // ★ 实例级缓存（2026-10-17 并发修复）：**鉴权通过之后**才查缓存，
       //   且缓存键内含**鉴权指纹**（sha256(key) 前 16 位）⇒ 金钥错配取不到别人的 200 缓存体；
       //   错误面（401/405/503/500）走各自分支，永不读也永不写本缓存。
@@ -101,6 +120,9 @@ export function createGetHandler(routeName, run, authOptions = {}) {
         console.log(
           `[api/${routeName}] ok cache=hit ms=${Date.now() - startedAt} params=${describeShape(req)}`
         )
+        // 缓存命中照计（口径 1）：状态 200、标 cacheHit，供日后核对「命中率 ≠ 免费」；
+        // 必须在回包**之前**完成（见上方「先写完、再回包」）。
+        await metering.finish({ statusCode: 200, cacheHit: true })
         return ok(res, cached)
       }
       markMiss()
@@ -112,12 +134,15 @@ export function createGetHandler(routeName, run, authOptions = {}) {
       console.log(
         `[api/${routeName}] ok cache=miss ms=${Date.now() - startedAt} params=${describeShape(req)}`
       )
+      await metering.finish({ statusCode: 200, cacheHit: false })
       return ok(res, data)
     } catch (error) {
       if (error instanceof InvalidParamError) {
+        await finishMetering(metering, 400)
         return fail(res, 400, 'INVALID_PARAM', error.message)
       }
       if (error instanceof NotConfiguredError) {
+        await finishMetering(metering, 503)
         return failWith(res, 503, 'NOT_CONFIGURED')
       }
       // 内部细节只进服务端日志，不进响应体（避免泄漏集合名 / 字段名 / 凭据形态）
@@ -126,7 +151,14 @@ export function createGetHandler(routeName, run, authOptions = {}) {
       console.error(
         `[api/${routeName}] INTERNAL_ERROR method=GET path=${describePath(req)} params=${describeShape(req)} error=${(error && error.name) || 'Error'} code=${describeError(error)} message=${describeMessage(error)}`
       )
+      await finishMetering(metering, 500)
       return failWith(res, 500, 'INTERNAL_ERROR')
     }
   }
+}
+
+/** catch 分支里的计量收尾（同样在回包**之前** await）：`metering` 未建立（计数点之前的异常）⇒ 什么都不做。 */
+async function finishMetering(metering, statusCode) {
+  if (!metering) return
+  await metering.finish({ statusCode, cacheHit: false })
 }
