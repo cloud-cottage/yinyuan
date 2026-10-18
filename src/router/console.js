@@ -4,7 +4,8 @@
  */
 import { createRouter, createWebHistory } from 'vue-router'
 import { APP_CONFIG } from '@/config/app-config.js'
-import { ensureSession } from '@/composables/useAuth.js'
+import { clearSessionState, ensureSession } from '@/composables/useAuth.js'
+import { onSessionExpired } from '@/data'
 
 const NotFoundPage = () => import('@/pages/NotFoundPage.vue')
 
@@ -66,6 +67,22 @@ const router = createRouter({
   scrollBehavior() {
     return { top: 0 }
   },
+})
+
+/**
+ * 会话失效（适配层判定 401 或本地 `expires_at` 已过）⇒
+ *   ① 清内存态（否则守卫会用旧的 `bootPromise` 继续放行，形成「跳登录 → 又被弹回概览」的环）；
+ *   ② 跳 `/console/login` 并带上 `redirect`（登录 / 注册两页除外 —— 它们本就无需会话）。
+ */
+onSessionExpired(() => {
+  clearSessionState()
+  const current = router.currentRoute.value
+  if (current && current.meta && current.meta.guestOnly) return
+  const redirect = current && typeof current.fullPath === 'string' && current.fullPath.startsWith('/console')
+    ? current.fullPath
+    : ''
+  const target = redirect ? { name: 'console-login', query: { redirect } } : { name: 'console-login' }
+  Promise.resolve(router.replace(target)).catch(() => {})
 })
 
 router.beforeEach(async (to) => {

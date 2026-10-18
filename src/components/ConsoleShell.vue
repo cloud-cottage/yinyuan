@@ -3,7 +3,8 @@
     <div class="console">
       <aside class="console-side">
         <div class="org">
-          <b>{{ user?.orgName || '（未登录）' }}</b>
+          <!-- 后端账号投影无机构名（B2 契约）⇒ 依次回落到邮箱 / 手机号，绝不显示假机构名 -->
+          <b>{{ user?.orgName || user?.email || user?.phone || '（未登录）' }}</b>
           <!-- §1.3 04-1：套餐档位归属**顶栏**（D6）；侧栏只保留机构名与账期，不重复档位 -->
           <span>账期 {{ account.data.value?.monthKey || '—' }}</span>
         </div>
@@ -17,8 +18,14 @@
           <a href="/pricing">计费规则</a>
         </nav>
         <div class="side-foot">
-          演示环境 · 示例数据<br />
-          金额与用量均为界面示意值<br />
+          <template v-if="isMock">
+            演示环境 · 示例数据<br />
+            金额与用量均为界面示意值<br />
+          </template>
+          <template v-else>
+            真实账号环境<br />
+            密钥与用量取自服务端<br />
+          </template>
           {{ stateNote }}
         </div>
       </aside>
@@ -70,6 +77,8 @@ const planName = computed(() => {
 })
 
 const stateNote = computed(() => `数据状态：${RESOLVED_DATA_SOURCE === 'api' ? '线上数据' : '演示数据'}`)
+/** 声明条 / 侧栏脚注按数据源切换（真实实现下不得声称「示例数据」）。 */
+const isMock = RESOLVED_DATA_SOURCE === 'mock'
 /** 声明条文案来自 A17（getPricingTable().disclaimer），不再直接 import PRICING。 */
 const disclaimer = computed(
   () => table.data.value?.disclaimer || '本页金额、单价、用量数字均为界面示意值，非报价',

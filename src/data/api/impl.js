@@ -1,7 +1,13 @@
 /**
  * 真实数据源实现（R-101 二次封装：A27 消费 xiai TileSplicer API）。
  *
- * 现状：**仅 A27 `getDisplaySlices` 已接线**（消费 xiai 侧 TileSplicer 只读 API），
+ * 现状（**已接线两组，其余仍是明确失败**）：
+ *   · **A2 `register` / A3 `login` / A4 `logout` / `getSession`** —— 接 B2 会话端点
+ *     （`src/data/api/auth.js`；会话落 sessionStorage，401 / 过期即清）；
+ *   · **A5 `listApiKeys` / A6 `createApiKey` / A7 `rotateApiKey` / A8 `setApiKeyStatus` /
+ *     A9 `deleteApiKey`** —— 接 B2 密钥端点（`src/data/api/keys.js`；`plain` 只经
+ *     `plaintextOnce` 交给页面一次，不落存储、不写日志）；
+ *   · **A27 `getDisplaySlices`** —— 接 xiai 侧 TileSplicer 只读 API。
  * 其余方法仍为「未接入」的明确失败 —— 本文件**绝不返回伪造数据**。
  *
  * 边界（R-103 跨工程单向边界）：
@@ -21,6 +27,8 @@
 import { API_BASE_URL } from '@/config/env.js'
 import { PRICING } from '@/config/pricing.js'
 import { toCstDate } from '@/data/time.js'
+import * as authAdapter from './auth.js'
+import * as keysAdapter from './keys.js'
 
 /** 统一未接入失败（页面应展示错误态 + 「演示环境：该功能未接入」）。 */
 function notConnected(method, endpoint) {
@@ -78,6 +86,24 @@ const apiImpl = {}
 for (const [name, endpoint] of Object.entries(ENDPOINTS)) {
   apiImpl[name] = () => notConnected(name, endpoint)
 }
+
+/* ==========================================================================
+ * A2–A4 / A5–A9 —— 账号会话与 API Key（B3 接线；B2 端点已上线）
+ *
+ * 只做**转发**：参数归一、错误面、会话存取、`plain → plaintextOnce` 的改名
+ * 全部落在 `auth.js` / `keys.js` 里（各面一个文件，便于单面替换 / 单测）。
+ * 页面依旧只经 `@/data` 取用 —— 本段不改变页面可见的方法签名。
+ * ========================================================================== */
+apiImpl.register = (input) => authAdapter.register(input)
+apiImpl.login = (account, password) => authAdapter.login(account, password)
+apiImpl.logout = () => authAdapter.logout()
+apiImpl.getSession = () => authAdapter.me()
+
+apiImpl.listApiKeys = () => keysAdapter.list()
+apiImpl.createApiKey = (input) => keysAdapter.create(input)
+apiImpl.rotateApiKey = (kid) => keysAdapter.rotate(kid)
+apiImpl.setApiKeyStatus = (kid, status) => keysAdapter.setStatus(kid, status)
+apiImpl.deleteApiKey = (kid) => keysAdapter.remove(kid)
 
 /* ==========================================================================
  * A27 —— 展示切片（R-101 二次封装：消费 xiai TileSplicer API）

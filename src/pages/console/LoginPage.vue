@@ -4,16 +4,25 @@
       <aside class="auth-aside">
         <p class="eyebrow">控制台</p>
         <h2>机构登录</h2>
-        <ul>
+        <ul v-if="isMock">
           <li><b>演示环境</b>：登录不校验真实凭证，会话只存于本机浏览器</li>
           <li>账号支持<b>邮箱或手机号</b>；密码至少 8 位且需含字母与数字</li>
+          <li>尚未开通的机构可走「申请演示环境」通道（长期保留）</li>
+        </ul>
+        <ul v-else>
+          <li><b>账号即手机号或邮箱</b>，口令由服务端校验（不回显、不明文存储）</li>
+          <li>登录状态保存在<b>本浏览器会话</b>内（关窗即失效），不写入本地持久存储</li>
+          <li>登录失败一律同一提示，不区分「账号不存在」与「口令不正确」</li>
           <li>尚未开通的机构可走「申请演示环境」通道（长期保留）</li>
         </ul>
       </aside>
 
       <section class="auth-main">
-        <!-- 03-4 声明 -->
-        <NoticeBar variant="warn" data-role="login-disclaimer">演示环境：登录不校验真实凭证</NoticeBar>
+        <!-- 03-4 声明（按数据源切换，文案不得与实现相反） -->
+        <NoticeBar variant="warn" data-role="login-disclaimer">
+          <template v-if="isMock">演示环境：登录不校验真实凭证</template>
+          <template v-else>真实账号：登录由服务端校验，会话有效期 7 天（保存在本浏览器会话内）</template>
+        </NoticeBar>
 
         <!-- 03-1 登录表单 -->
         <form novalidate @submit.prevent="submit">
@@ -66,14 +75,14 @@
             <button class="btn" type="submit" :disabled="submitting" data-action="login-submit">
               {{ submitting ? '登录中…' : '登录' }}
             </button>
-            <!-- 03-3 演示账号提示：一键填充，填充后仍可手动修改 -->
+            <!-- 03-3 演示账号提示：一键填充，填充后仍可手动修改（仅 mock 数据源存在演示凭证） -->
             <button
-              v-if="demo" class="btn ghost" type="button" :disabled="submitting" data-action="fill-demo"
+              v-if="demo && isMock" class="btn ghost" type="button" :disabled="submitting" data-action="fill-demo"
               @click="fillDemo"
             >点击使用演示账号</button>
           </div>
 
-          <p v-if="demo" class="hint" data-block="demo-account">
+          <p v-if="demo && isMock" class="hint" data-block="demo-account">
             演示账号：<code class="mono">{{ demo.account }}</code>（演示态提供，仅用于界面演示）；
             点击「点击使用演示账号」一键填充，填充后仍可手动修改
           </p>
@@ -113,11 +122,20 @@ import NoticeBar from '@/components/NoticeBar.vue'
 import { useAppConfig } from '@/composables/useAppConfig.js'
 import { useAuth } from '@/composables/useAuth.js'
 import { toast, toastNotConnected } from '@/composables/useToast.js'
+import { RESOLVED_DATA_SOURCE, isAuthFailure, isRateLimited, isServiceUnavailable } from '@/data'
 
 const router = useRouter()
 const route = useRoute()
 const { demo, loadAppConfig } = useAppConfig()
 const { signIn } = useAuth()
+
+/** 当前数据源：文案与错误分派按它切换（`mock` 展示演示口径，`api` 展示真实账号口径）。 */
+const isMock = RESOLVED_DATA_SOURCE === 'mock'
+
+/** 401 统一文案（服务端反探测：账号不存在 / 口令错 / 停用**同形同文案**，此处不再细分）。 */
+const AUTH_FAILED_TEXT = '手机号 / 邮箱或口令不正确'
+/** 429 统一文案（限流窗口：同 IP 10 分钟 / 同账号 10 分钟）。 */
+const RATE_LIMITED_TEXT = '尝试过于频繁，请稍后再试'
 
 const form = reactive({ account: '', password: '', captcha: '', remember: true })
 const submitting = ref(false)
@@ -175,8 +193,22 @@ async function submit() {
     const target = raw.startsWith('/console') ? raw : null
     await router.replace(target || { name: 'console-overview' })
   } catch (e) {
-    if (e?.code === 'AUTH_FAILED') serverError.account = e?.message || '账号或密码不正确'
-    else submitError.value = e?.message || '登录失败，请稍后重试'
+    /**
+     * 错误分派（B3）：
+     *   · 401 → **统一文案**内联到账号字段（服务端反探测，前端也不细分账号/口令/停用）；
+     *   · 429 → 「稍后再试」（限流，非凭据问题 ⇒ 不指责账号）；
+     *   · 503 / 网络 → 服务不可用类提示（不是用户错，不要暗示口令有误）；
+     *   · 其余 → 服务端文案。
+     */
+    if (isAuthFailure(e)) {
+      serverError.account = AUTH_FAILED_TEXT
+    } else if (isRateLimited(e)) {
+      submitError.value = RATE_LIMITED_TEXT
+    } else if (isServiceUnavailable(e) || e?.reason === 'NETWORK_ERROR') {
+      submitError.value = e?.message || '登录服务暂时不可用，请稍后重试'
+    } else {
+      submitError.value = e?.message || '登录失败，请稍后重试'
+    }
   } finally {
     submitting.value = false
   }

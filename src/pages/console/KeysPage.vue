@@ -1,9 +1,15 @@
 <template>
   <ConsoleShell crumb="控制台 / 密钥管理" spec-ref="P-M1-05">
-    <!-- 05-7 声明（全站声明条）：对客文案不含任何内部标识 -->
+    <!-- 05-7 声明（全站声明条）：对客文案不含任何内部标识；按数据源切换，不得与实现相反 -->
     <NoticeBar variant="status">
-      <b>密钥为界面示意值，不产生真实凭据</b> —— 列表只显示掩码；
-      完整密钥仅在创建 / 重生的当次弹层中出现一次，关闭后无法再次查看，请立即复制保存。
+      <template v-if="isMock">
+        <b>密钥为界面示意值，不产生真实凭据</b> —— 列表只显示掩码；
+        完整密钥仅在创建 / 重生的当次弹层中出现一次，关闭后无法再次查看，请立即复制保存。
+      </template>
+      <template v-else>
+        <b>完整密钥只在创建 / 重生的当次响应中出现一次</b> —— 列表只显示服务端下发的前缀；
+        关闭弹层后任何入口都无法再取回，请立即复制保存。搞丢了只能「重生」一把新的。
+      </template>
     </NoticeBar>
 
     <div class="block-head" style="margin-top:18px;">
@@ -31,25 +37,24 @@
         <table class="tbl">
           <thead>
             <tr>
-              <th>备注名</th><th>密钥 ID</th><th>前缀与掩码</th><th>环境</th><th>scopes</th>
-              <th>状态</th><th>创建时间（CST）</th><th>最近使用（CST）</th><th>操作</th>
+              <th>备注名</th><th>密钥 ID</th><th>前缀</th><th>状态</th>
+              <th>创建时间（CST）</th><th>最近使用（CST）</th><th>调用次数</th><th>操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="key in list" :key="key.kid">
-              <td>{{ key.label }}</td>
+              <td>{{ key.label || '—' }}</td>
               <td class="mono">{{ key.kid }}</td>
-              <td class="mask mono">{{ key.maskedKey }}</td>
-              <td>{{ envText(key.env) }}</td>
-              <td class="note">{{ key.scopes.join('、') }}</td>
+              <!-- 前端只展示服务端下发的前缀（可辨身份即可）；任何地方都不拼装完整密钥 -->
+              <td class="mask mono">{{ key.prefix || key.maskedKey || '—' }}</td>
               <td>
                 <span class="state" :class="{ warn: key.status !== API_KEY_STATUS.ACTIVE }">{{ statusText(key.status) }}</span>
               </td>
               <td class="note">
-                {{ toCstDateTime(key.createdAt) }}
-                <template v-if="key.rotatedAt"><br />轮换 {{ toCstDateTime(key.rotatedAt) }}</template>
+                {{ key.createdAt ? toCstDateTime(key.createdAt) : '—' }}
               </td>
               <td class="note">{{ key.lastUsedAt ? toCstDateTime(key.lastUsedAt) : '—' }}</td>
+              <td class="note">{{ Number(key.callCount) || 0 }}</td>
               <td class="rowacts">
                 <button type="button" :disabled="busy" @click="askStatus(key)">
                   {{ key.status === API_KEY_STATUS.ACTIVE ? '禁用' : '启用' }}
@@ -84,13 +89,9 @@
       <ul class="usage-list">
         <li><b>明文只显示一次</b>：创建或重生成功后请立即复制保存；关闭弹层后任何入口都无法再次取回明文。</li>
         <li><b>禁用 / 启用即时生效</b>：禁用后该密钥的请求一律被拒绝，可随时重新启用；禁用不删除记录。</li>
-        <li><b>重生</b>：密钥 ID 不变，明文被替换、旧明文立即失效，并更新轮换时间。</li>
-        <li><b>删除</b>：记录被移除，已产生的用量记录不删除，仍保留原密钥归属。</li>
+        <li><b>重生</b>：旧密钥立即失效，系统同时生成一把新密钥（<b>新密钥 ID + 新明文</b>）；旧记录转为已禁用保留在列表里。</li>
+        <li><b>删除 = 撤销</b>：该密钥立即失效，记录以「已禁用」保留（留审计），可随时重新启用；已产生的用量记录不删除。</li>
         <li><b>泄露处置建议</b>：第一时间禁用或重生该密钥，再排查调用来源与用量异常。</li>
-        <li>
-          <b>权限范围（scopes）</b>：检索与详情（seal:search）、预览图与展示切片（image:preview）、
-          高清原图取图 / 下载（image:original）、读取自己的用量（usage:read）。
-        </li>
       </ul>
     </div>
 
@@ -100,21 +101,9 @@
         <h4 id="key-create-title">新建密钥</h4>
         <div class="field">
           <label for="key-label">备注名</label>
-          <input id="key-label" v-model="formLabel" type="text" maxlength="24" placeholder="例如：展陈联调" />
+          <input id="key-label" v-model="formLabel" type="text" maxlength="64" placeholder="例如：展陈联调" />
+          <p class="hint">备注名只用于你自己辨识（≤ 64 字），可随时改名重建。</p>
         </div>
-        <div class="field">
-          <span class="field-label">环境</span>
-          <div class="radios">
-            <label><input v-model="formEnv" type="radio" :value="ENV.TEST" /> 测试环境</label>
-            <label><input v-model="formEnv" type="radio" :value="ENV.LIVE" /> 正式环境</label>
-          </div>
-        </div>
-        <fieldset class="scopebox">
-          <legend>权限范围（scopes，至少一项）</legend>
-          <label v-for="scope in SCOPE_OPTIONS" :key="scope.value">
-            <input v-model="formScopes" type="checkbox" :value="scope.value" /> {{ scope.label }}
-          </label>
-        </fieldset>
         <p v-if="formError" class="field-error" role="alert">{{ formError }}</p>
         <div class="modal-acts">
           <button class="btn sm" type="button" :disabled="busy" @click="submitCreate()">
@@ -135,8 +124,8 @@
           <div ref="plainRef" class="plain" id="key-plaintext">{{ plaintext }}</div>
           <p class="note">
             密钥 ID：<span class="mono">{{ plaintextKid }}</span>
-            ｜{{ plaintextEnv === ENV.LIVE ? '正式环境' : '测试环境' }}
-            <template v-if="plaintextRotatedAt"><br />轮换时间（CST）：{{ toCstDateTime(plaintextRotatedAt) }}</template>
+            <template v-if="plaintextCreatedAt"><br />创建时间（CST）：{{ toCstDateTime(plaintextCreatedAt) }}</template>
+            <br />本页关闭后明文即从内存丢弃，无法再次查看（服务端也不保存明文）。
           </p>
           <div class="modal-acts">
             <button class="btn sm" type="button" @click="copyPlaintext()">{{ copied ? '已复制' : '复制' }}</button>
@@ -183,11 +172,12 @@ import NoticeBar from '@/components/NoticeBar.vue'
 import StateBlock from '@/components/StateBlock.vue'
 import {
   API_KEY_STATUS,
-  ENV,
-  SCOPES,
+  RESOLVED_DATA_SOURCE,
   createApiKey,
   deleteApiKey,
   getAppConfig,
+  isAuthFailure,
+  isRateLimited,
   listApiKeys,
   rotateApiKey,
   setApiKeyStatus,
@@ -195,6 +185,9 @@ import {
 } from '@/data'
 import { useAsync } from '@/composables/useAsync.js'
 import { toast } from '@/composables/useToast.js'
+
+/** 当前数据源：文案与「上限」判据按它切换。 */
+const isMock = RESOLVED_DATA_SOURCE === 'mock'
 
 /** 05-1 列表（无明文）。 */
 const keys = useAsync(listApiKeys)
@@ -222,25 +215,15 @@ function load() {
 const busy = ref(false)
 const createOpen = ref(false)
 const formLabel = ref('')
-const formEnv = ref(ENV.TEST)
-const formScopes = ref(['seal:search'])
 const formError = ref('')
 const createDisabled = computed(() => limitReached.value || busy.value)
-
-const SCOPE_OPTIONS = [
-  { value: SCOPES[0], label: '检索与详情（seal:search）' },
-  { value: SCOPES[1], label: '预览图与展示切片（image:preview）' },
-  { value: SCOPES[2], label: '高清原图取图 / 下载（image:original）' },
-  { value: SCOPES[3], label: '读取自己的用量（usage:read）' },
-]
 
 /** 明文态：只在创建 / 重生当次响应里存在；关闭即丢弃，列表只留掩码。 */
 const plaintextOpen = ref(false)
 const plaintext = ref(null)
 const plaintextKid = ref('')
-const plaintextEnv = ref(ENV.TEST)
+const plaintextCreatedAt = ref(null)
 const plaintextKind = ref('create')
-const plaintextRotatedAt = ref(null)
 const copied = ref(false)
 const plainRef = ref(null)
 /** 本会话内已展示过明文的密钥 ID：行内永久置灰「明文已展示」，二次点击不重现明文。 */
@@ -258,10 +241,6 @@ const confirmState = ref({
   confirmLabel: '确认',
   nextStatus: API_KEY_STATUS.ACTIVE,
 })
-
-function envText(env) {
-  return env === ENV.LIVE ? 'live' : 'test'
-}
 
 function statusText(status) {
   return status === API_KEY_STATUS.ACTIVE ? '启用中' : '已禁用'
@@ -288,8 +267,6 @@ function openCreate() {
     return
   }
   formLabel.value = ''
-  formEnv.value = ENV.TEST
-  formScopes.value = ['seal:search']
   formError.value = ''
   createOpen.value = true
 }
@@ -301,23 +278,32 @@ async function submitCreate() {
     formError.value = '请填写备注名'
     return
   }
-  if (!formScopes.value.length) {
-    formError.value = '请至少勾选一项权限范围'
-    return
-  }
   formError.value = ''
   busy.value = true
   try {
-    const result = await createApiKey({ label, env: formEnv.value, scopes: [...formScopes.value] })
+    // 服务端铸造体只有 `{label?, ttl?}`（B2 契约）：不送 env / scopes 这类后端不存在的字段。
+    const result = await createApiKey({ label })
     upsertKey(result.key)
     createOpen.value = false
     showPlaintext(result.key, result.plaintextOnce, 'create')
   } catch (err) {
-    formError.value = err?.message || '创建失败，请重试'
+    formError.value = createErrorText(err)
     toast(formError.value)
   } finally {
     busy.value = false
   }
+}
+
+/**
+ * 铸造失败文案（B3）：
+ *   · 409 `KEY_LIMIT` → 直接用服务端文案（上限值由服务端定，前端不写死数字）；
+ *   · 429 → 稍后再试；401 → 会话失效（守卫同时会把页面送回登录）；
+ *   · 其余 → 服务端文案或兜底。
+ */
+function createErrorText(err) {
+  if (isAuthFailure(err)) return '登录状态已失效，请重新登录后重试'
+  if (isRateLimited(err)) return '操作过于频繁，请稍后再试'
+  return err?.message || '创建失败，请重试'
 }
 
 // ---------------------------------------------------------------------------
@@ -329,9 +315,8 @@ function showPlaintext(key, plain, kind) {
     return
   }
   plaintextKid.value = key.kid
-  plaintextEnv.value = key.env
+  plaintextCreatedAt.value = key.createdAt || null
   plaintextKind.value = kind
-  plaintextRotatedAt.value = key.rotatedAt || null
   plaintext.value = plain
   copied.value = false
   plaintextOpen.value = true
@@ -348,7 +333,7 @@ function closePlaintext() {
   if (plaintextKid.value) markShown(plaintextKid.value)
   plaintextOpen.value = false
   plaintext.value = null
-  plaintextRotatedAt.value = null
+  plaintextCreatedAt.value = null
   copied.value = false
 }
 
@@ -411,7 +396,7 @@ function askRotate(key) {
     kid: key.kid,
     label: key.label,
     title: '确认重生该密钥？',
-    message: '重生会立即替换明文（密钥 ID 不变、轮换时间更新），原明文立即失效；新明文只显示一次。',
+    message: '重生会立即生成一把新密钥（新密钥 ID + 新明文），当前这把随即失效；新明文只显示一次，旧明文即刻不可用。',
     confirmLabel: '确认重生',
     nextStatus: key.status,
   }
@@ -424,7 +409,7 @@ function askDelete(key) {
     kid: key.kid,
     label: key.label,
     title: '确认删除该密钥？',
-    message: '删除后该密钥记录被移除，操作不可撤销；已产生的用量记录会保留原密钥归属。',
+    message: '删除即撤销：该密钥立即失效，记录以「已禁用」保留（不物理删除、留审计），可随时重新启用；已产生的用量记录仍保留原密钥归属。',
     confirmLabel: '确认删除',
     nextStatus: key.status,
   }
@@ -444,18 +429,35 @@ async function runConfirm() {
       upsertKey(updated)
       toast(state.nextStatus === API_KEY_STATUS.DISABLED ? '已禁用：该密钥的请求将立即被拒绝' : '已启用')
     } else if (state.kind === 'rotate') {
+      /**
+       * 轮换在服务端是「先铸新、后撤旧」⇒ **新密钥是新的一行（新 kid）**，旧行转 `revoked`。
+       * 因此不 upsert（那会留下两行、且旧行状态是陈旧的），改为**回读列表**取权威状态；
+       * 回读失败不影响明文展示（明文只此一次，绝不能被列表刷新失败吞掉）。
+       */
       const result = await rotateApiKey(state.kid)
-      upsertKey(result.key)
+      try {
+        await load()
+      } catch (refreshError) {
+        void refreshError
+      }
       showPlaintext(result.key, result.plaintextOnce, 'rotate')
-      toast('已重生：密钥 ID 不变，旧明文立即失效，请复制保存新明文')
+      toast('已重生：旧密钥立即失效，请复制保存新明文')
     } else if (state.kind === 'delete') {
+      /**
+       * 服务端 DELETE = **逻辑撤销**（只改 status，不物理删行）⇒ 记录仍在列表里、状态变为已禁用。
+       * 故回读列表，而不是从本地数组里删掉那一行（否则刷新后又「冒出来」）。
+       */
       await deleteApiKey(state.kid)
-      keys.data.value = list.value.filter((k) => k.kid !== state.kid)
-      toast('已删除该密钥：用量记录保留原密钥归属')
+      try {
+        await load()
+      } catch (refreshError) {
+        void refreshError
+      }
+      toast('已撤销该密钥：记录保留为已禁用，用量记录仍保留原密钥归属')
     }
     closeConfirm()
   } catch (err) {
-    toast(err?.message || '操作失败，请重试')
+    toast(createErrorText(err))
   } finally {
     busy.value = false
   }

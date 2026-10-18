@@ -55,6 +55,23 @@ export const requestOriginalDownload = impl.requestOriginalDownload // A31（v1.
 // ---- 契约枚举（只读常量，非数据读写；供页面避免硬编码枚举字面量，§8.3-3 不涉及实现） -----
 export { ENV, API_KEY_STATUS, SCOPES } from './contract.js'
 
+// ---- 会话存储 / 失败面判据（B3：真实端点的会话与错误分类） -------------------
+// 页面**只经本入口**取用（§8.3-3：禁止页面直接 import `@/data/api/**`）：
+//   · `SESSION_STORAGE_KEY`  会话落点（sessionStorage `yinyuan.session.v1`，禁 localStorage）；
+//   · `onSessionExpired(fn)` 订阅「401 / 本地过期」—— 路由守卫据此跳 `/console/login`；
+//   · `isAuthFailure / isRateLimited / isAlreadyExists / isServiceUnavailable`
+//     把服务端 reason（`UNAUTHORIZED` / `SESSION_INVALID` / `NOT_CONFIGURED` / `CONFIG_MISSING` …）
+//     收敛成四个谓词，页面不写字面量比较（避免契约字面漂移时页面漏改）。
+export {
+  SESSION_STORAGE_KEY,
+  SESSION_EXPIRED_EVENT,
+  onSessionExpired,
+  isAuthFailure,
+  isRateLimited,
+  isAlreadyExists,
+  isServiceUnavailable,
+} from './api/auth.js'
+
 // ---- 影像三面（R-101 二次封裝：xiai-api `/api/image/**`；**非 A1–A31 契約方法**） -------
 // 说明：三面是 xiai-api 影像面的直接消費面（塊 / 縮略 / 原字節），**不受 `DATA_SOURCE` 開關影響** ——
 // 是否有「源件摘要（sha256）」由頁面決定；無摘要 ⇒ 調用即結構化失敗（不代填、不造僞）。

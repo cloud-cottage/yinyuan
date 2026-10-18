@@ -33,6 +33,19 @@ export function ensureSession(force = false) {
   return bootPromise
 }
 
+/**
+ * 会话失效时清内存态（B3）。
+ *
+ * 由路由守卫在适配层派发 `session-expired` 时调用：把 `bootPromise` 归零为「已解析的 null」，
+ * 否则守卫下次仍拿旧 Promise 里的 user 放行，`guestOnly` 规则会把用户从登录页再弹回概览。
+ */
+export function clearSessionState() {
+  user.value = null
+  initialized.value = true
+  loading.value = false
+  bootPromise = Promise.resolve(null)
+}
+
 export function useAuth() {
   return {
     user,

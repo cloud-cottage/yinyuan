@@ -4,10 +4,16 @@
       <aside class="auth-aside">
         <p class="eyebrow">开通</p>
         <h2>注册机构账号</h2>
-        <ul>
+        <ul v-if="isMock">
           <li><b>注册即自动开通</b>，可自助生成 API 密钥</li>
           <li>注册开关由平台配置驱动：开放时可自助注册，暂停时改走申请演示通道</li>
           <li>本轮为演示态，账号数据仅存于本机浏览器会话，刷新即重置，不写入任何真实库</li>
+        </ul>
+        <ul v-else>
+          <li><b>注册即自动开通</b>，可自助生成 API 密钥</li>
+          <li><b>账号标识为手机号或邮箱</b>（二选一，手机号优先），口令由服务端加盐散列保存</li>
+          <li>注册成功即登录，会话保存在本浏览器会话内（关窗即失效）</li>
+          <li>同一手机号 / 邮箱重复注册会被拒绝，请直接去登录</li>
         </ul>
       </aside>
 
@@ -39,7 +45,10 @@
               <input
                 id="reg-contact" v-model.trim="form.contactName" type="text" placeholder="张示例"
               />
-              <p class="hint">用于后续服务联络；演示态不落库</p>
+              <p class="hint" data-hint="contact-usage">
+                <template v-if="isMock">用于后续服务联络；演示态不落库</template>
+                <template v-else>用于后续服务联络（账号接口只收手机号 / 邮箱与口令，机构与联系人信息不随注册落库）</template>
+              </p>
             </div>
           </div>
 
@@ -134,9 +143,15 @@
           <router-link class="btn ghost sm" to="/console/login">已有账号？去登录</router-link>
         </div>
 
-        <!-- 02-5 说明区 -->
+        <!-- 02-5 说明区（按数据源切换：真实实现下不得声明「不落库」） -->
         <p class="disclaimer" style="margin-top:18px;" data-block="register-note">
-          注册即自动开通，可自助生成 API 密钥；本轮为演示态，账号数据仅保存于本机浏览器会话（刷新即重置），不落库。
+          <template v-if="isMock">
+            注册即自动开通，可自助生成 API 密钥；本轮为演示态，账号数据仅保存于本机浏览器会话（刷新即重置），不落库。
+          </template>
+          <template v-else>
+            注册即自动开通，可自助生成 API 密钥；账号以手机号 / 邮箱为唯一标识，口令由服务端加盐散列保存，
+            登录状态保存在本浏览器会话内。
+          </template>
         </p>
       </section>
     </div>
@@ -160,10 +175,20 @@ import NoticeBar from '@/components/NoticeBar.vue'
 import { useAppConfig } from '@/composables/useAppConfig.js'
 import { useAuth } from '@/composables/useAuth.js'
 import { toast } from '@/composables/useToast.js'
+import {
+  RESOLVED_DATA_SOURCE,
+  isAlreadyExists,
+  isAuthFailure,
+  isRateLimited,
+  isServiceUnavailable,
+} from '@/data'
 
 const router = useRouter()
 const { featureFlags, loadAppConfig } = useAppConfig()
 const { signUp } = useAuth()
+
+/** 当前数据源：文案按它切换（`mock` 演示口径 / `api` 真实账号口径）。 */
+const isMock = RESOLVED_DATA_SOURCE === 'mock'
 
 const form = reactive({
   orgName: '', contactName: '', phone: '', email: '',
@@ -235,12 +260,26 @@ async function submit() {
       email: form.email,
       password: form.password,
     })
-    toast('开通成功：机构账号已创建（演示态），可自助生成 API 密钥')
+    toast(isMock
+      ? '开通成功：机构账号已创建（演示态），可自助生成 API 密钥'
+      : '开通成功：账号已创建，可自助生成 API 密钥')
     await router.replace({ name: 'console-overview', query: { opened: '1' } })
   } catch (e) {
-    const code = e?.code
-    if (code === 'EMAIL_TAKEN' || code === 'VALIDATION_ERROR') {
-      serverError.email = e?.message || '该邮箱不可用'
+    /**
+     * 错误分派（B3）：
+     *   · 409 → 该手机号 / 邮箱已注册（服务端 `ALREADY_EXISTS`）—— 提示去登录，不泄露是哪一项命中；
+     *   · 429 → 限流，稍后再试；
+     *   · 401 → 注册端点不返 401（无会话要求），出现即按凭据/会话异常处理；
+     *   · 503 / 网络 → 服务不可用类提示；其余 → 服务端文案。
+     */
+    if (isAlreadyExists(e)) {
+      submitError.value = '该手机号或邮箱已注册，请直接登录'
+    } else if (isRateLimited(e)) {
+      submitError.value = '注册过于频繁，请稍后再试'
+    } else if (isAuthFailure(e)) {
+      submitError.value = '注册请求被拒绝，请检查账号格式后重试'
+    } else if (isServiceUnavailable(e) || e?.reason === 'NETWORK_ERROR') {
+      submitError.value = e?.message || '注册服务暂时不可用，请稍后重试'
     } else {
       submitError.value = e?.message || '注册失败，请稍后重试'
     }
