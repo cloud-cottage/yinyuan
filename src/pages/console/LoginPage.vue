@@ -75,16 +75,16 @@
             <button class="btn" type="submit" :disabled="submitting" data-action="login-submit">
               {{ submitting ? '登录中…' : '登录' }}
             </button>
-            <!-- 03-3 演示账号提示：一键填充，填充后仍可手动修改（仅 mock 数据源存在演示凭证） -->
+            <!-- 03-3 演示账号一键登录：文案 / 凭证 / 开关全部来自站点配置，登录调用走数据源适配层（不区分实现） -->
             <button
-              v-if="demo && isMock" class="btn ghost" type="button" :disabled="submitting" data-action="fill-demo"
-              @click="fillDemo"
-            >点击使用演示账号</button>
+              v-if="demoSignInAvailable" class="btn ghost" type="button" :disabled="submitting" data-action="fill-demo"
+              @click="demoSignIn"
+            >{{ demo.buttonLabel }}</button>
           </div>
 
-          <p v-if="demo && isMock" class="hint" data-block="demo-account">
+          <p v-if="demoSignInAvailable" class="hint" data-block="demo-account">
             演示账号：<code class="mono">{{ demo.account }}</code>（演示态提供，仅用于界面演示）；
-            点击「点击使用演示账号」一键填充，填充后仍可手动修改
+            点击「{{ demo.buttonLabel }}」一次点击即完成登录并进入控制台；登录后如需手动试填，修改账号 / 密码再点「登录」即可
           </p>
           <p v-if="submitting" class="hint" data-hint="submitting">正在校验登录信息，请稍候…</p>
 
@@ -110,7 +110,7 @@
  * 要素 03-1～03-4 与交互 1～4 逐项落地：
  *  - 表单（03-1）：账号（邮箱 / 手机号合并）+ 密码 + 图形验证码（占位）+ 记住我；
  *  - 辅助入口（03-2）：忘记密码（占位提示）、还没有账号？注册、申请演示环境；
- *  - 演示账号提示（03-3）：一键填充、可手动修改，账号本身来自配置（不硬编码）；
+ *  - 演示账号提示（03-3）：一次点击即登录（填凭证 → 满足占位验证码 → 提交 → 跳转），账号来自配置（不硬编码）；
  *  - 声明（03-4）：「演示环境：登录不校验真实凭证」；
  *  - 校验失败 → 字段内联错误，不弹全局错误；成功后写入会话并支持 `redirect` 回跳；
  *  - 已登录访问本页由路由守卫重定向至概览。
@@ -121,7 +121,7 @@ import EntryLink from '@/components/EntryLink.vue'
 import NoticeBar from '@/components/NoticeBar.vue'
 import { useAppConfig } from '@/composables/useAppConfig.js'
 import { useAuth } from '@/composables/useAuth.js'
-import { toast, toastNotConnected } from '@/composables/useToast.js'
+import { toastNotConnected } from '@/composables/useToast.js'
 import { RESOLVED_DATA_SOURCE, isAuthFailure, isRateLimited, isServiceUnavailable } from '@/data'
 
 const router = useRouter()
@@ -131,6 +131,14 @@ const { signIn } = useAuth()
 
 /** 当前数据源：文案与错误分派按它切换（`mock` 展示演示口径，`api` 展示真实账号口径）。 */
 const isMock = RESOLVED_DATA_SOURCE === 'mock'
+
+/**
+ * 演示账号入口是否显现（两段门控，互不耦合）：
+ *   ① 配置开关 `demo.signInEnabled`（文案 / 凭证 / 验证码占位值同样来自配置）；
+ *   ② 数据源门控 —— 当前只在演示数据源下显现，因为真实端点尚无服务端预置演示账号。
+ * 将来 api 模式接入服务端演示账号时只需放开②，按钮、文案与登录流程（走 `@/data` 适配层）原样复用。
+ */
+const demoSignInAvailable = computed(() => !!demo.value?.signInEnabled && isMock)
 
 /** 401 统一文案（服务端反探测：账号不存在 / 口令错 / 停用**同形同文案**，此处不再细分）。 */
 const AUTH_FAILED_TEXT = '手机号 / 邮箱或口令不正确'
@@ -169,13 +177,20 @@ onMounted(async () => {
   await loadAppConfig()
 })
 
-/** 03-3：一键填充演示凭证（填充后用户仍可自行修改）。 */
-function fillDemo() {
+/**
+ * 03-3：一键演示登录 —— 先填凭证（含占位图形验证码），随即走既有 `submit()` 提交。
+ *
+ * 与「手动提交」共用同一条校验 / 登录 / 回跳链路：不做任何绕过（验证码仍是非空校验，
+ * 这里填的是占位图形的字面值，来自配置）；登录失败时字段保留在表单里，
+ * 用户可修改账号 / 密码后点「登录」，行为与手动输入完全一致。
+ */
+async function demoSignIn() {
   const cred = demo.value
   if (!cred) return
   form.account = cred.account
   form.password = cred.password
-  toast(cred.label || '已填充演示账号')
+  form.captcha = cred.captcha
+  await submit()
 }
 
 async function submit() {

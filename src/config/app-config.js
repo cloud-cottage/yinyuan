@@ -35,12 +35,18 @@ export const APP_CONFIG = Object.freeze({
     timezoneNote: '时间均为北京时间（CST）',
   }),
 
-  /** 演示态开关与演示账号（P-M1-03 03-3）。凭证仅用于演示填充，登录不校验真实凭证。 */
+  /** 演示态开关与演示账号（P-M1-03 03-3）。凭证仅用于演示登录，登录不校验真实凭证。 */
   demo: Object.freeze({
     showDemoAccount: true,
     account: 'demo@yinyuan.example',
     password: 'yinyuan2026',
     label: '演示账号（演示环境：登录不校验真实凭证）',
+    /** 演示按钮文案：一次点击即登录（不得写成「填充」，文案须与行为一致）。 */
+    buttonLabel: '一键登录演示账号',
+    /** 演示登录入口开关：是否显现另由各数据源门控决定（页面只读此位，不写死流程）。 */
+    signInEnabled: true,
+    /** 图形验证码占位值：与登录页占位图形显示的字面一致（演示态仅作非空校验，服务端不核对真值）。 */
+    captcha: 'DEMO',
   }),
 
   /** spec §11 待决 10 默认：每用户密钥数量上限 5。 */
