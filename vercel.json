@@ -22,7 +22,6 @@
     { "source": "/api/v1/keys/:kid", "destination": "/api/v1/keys?kid=:kid" },
     { "source": "/api/v1/seals", "destination": "/api/console?op=seals" },
     { "source": "/api/v1/seals/:id", "destination": "/api/console?op=seals&id=:id" },
-    { "source": "/api/v1/seals/:id", "destination": "/api/v1/seals?id=:id" },
     { "source": "/api/v1/auth/login", "destination": "/api/auth?op=login" },
     { "source": "/api/v1/auth/register", "destination": "/api/auth?op=register" },
     { "source": "/api/v1/auth/demo-login", "destination": "/api/auth?op=demo-login" },
