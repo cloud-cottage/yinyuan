@@ -151,6 +151,26 @@ export async function countByField(db, collection, field) {
 }
 
 /**
+ * 按「某字段 ∈ 给定值集合」取行（**显式 limit**，默认 1000、上限同值）。
+ *
+ * 用途：本端点按主键集合取关联行（`xiai_faces` 按 `sealId` 集合 / `xiai_seals` 按 `id` 单取），
+ * 避免「先扫全表再过滤」的放大读。空集合 ⇒ 直接返回 `[]`（**不发请求**）。
+ * 仍走 `runRead`（有界重试 ＋ 逐操作计时），与其余读面同一套设施。
+ */
+export async function fetchWhereIn(db, collection, field, values, limit = 1000) {
+  if (!Array.isArray(values) || values.length === 0) return []
+  const size = Number.isFinite(Number(limit)) && Number(limit) > 0 ? Math.floor(Number(limit)) : 1000
+  return runRead(`whereIn:${collection}`, db, async (handle) => {
+    const res = await handle
+      .collection(collection)
+      .where({ [field]: handle.command.in(values) })
+      .limit(size)
+      .get()
+    return Array.isArray(res.data) ? res.data : []
+  })
+}
+
+/**
  * 跨多个集合按「集合顺序 + 各集合内 `_id` 升序」拼一页。
  * sources: [{ collection, key, map, total }]（total 由调用方一次 count 后传入）
  *

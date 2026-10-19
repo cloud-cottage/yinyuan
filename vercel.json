@@ -20,6 +20,7 @@
     { "source": "/((?!assets/|api/).*)", "destination": "/index.html" },
     { "source": "/api/v1/keys/:kid/rotate", "destination": "/api/v1/keys?kid=:kid&action=rotate" },
     { "source": "/api/v1/keys/:kid", "destination": "/api/v1/keys?kid=:kid" },
+    { "source": "/api/v1/seals/:id", "destination": "/api/v1/seals?id=:id" },
     { "source": "/api/(.*)", "destination": "/api" }
   ]
 }

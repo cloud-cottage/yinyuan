@@ -113,7 +113,14 @@
       <div class="container">
         <h2 class="section-title">玺印样例预览</h2>
         <p class="section-sub">图占位为纯 CSS 示意，非真实藏品影像；首张卡例外 —— 该卡走 xiai-api 真源影像三面（真源输出，非示意图）</p>
-        <div class="grid-4">
+        <div v-if="samplesUnavailable" class="seal-empty" role="status">
+          <div class="seal-empty-face">
+            <span class="ph-badge">图占位</span>
+          </div>
+          <h4>样例暂不可用</h4>
+          <div class="meta"><small>本区样例影像暂时无法读取，稍后刷新本页可重试；其余内容不受影响。</small></div>
+        </div>
+        <div v-else class="grid-4">
           <article v-for="sample in samples" :key="sample.label" class="seal-card">
             <SlicePreview
               :asset-id="sample.assetId"
@@ -243,6 +250,16 @@ const samples = computed(() => SAMPLE_DEFS.map((def, i) => ({
   assetId: sealList.data.value?.items?.[i]?.assets?.[0]?.assetId || '',
 })))
 
+/**
+ * 样例区**如实空态**（仅 api 模式）：列表读取失败或为空时不再渲染四张卡，改显一句对客说明。
+ * - mock 模式零改动（`dataSource !== 'api'` 时恒为 `false`，与既有行为逐字一致）；
+ * - `useAsync` 已把异常收进 `error`（不抛未捕获异常），此处只按状态分支 ⇒ **不白屏、不抛错**；
+ * - 不补假数据、不拿 mock 兜底：读不到就是读不到。
+ */
+const samplesUnavailable = computed(
+  () => dataSource === 'api' && (sealList.state.value === 'error' || sealList.state.value === 'empty'),
+)
+
 /** 站内锚点平滑滚动（不跳转、不刷新；spec §1.3 交互 1）。 */
 function scrollTo(hash) {
   const el = document.querySelector(hash)
@@ -271,4 +288,16 @@ function notify() {
 .entry-lead { text-align: center; max-width: 820px; margin: 0 auto var(--sp-12); color: var(--ink-2); }
 .entry-acts { justify-content: center; }
 .meta small { color: var(--faint); }
+/* 样例区如实空态（仅 api 模式读不到时出现；沿用图占位视觉，不新增颜色字面量） */
+.seal-empty {
+  border: var(--border); border-radius: var(--radius); padding: var(--sp-12) var(--sp-13);
+  text-align: center; display: flex; flex-direction: column; align-items: center; gap: var(--sp-4);
+}
+.seal-empty-face {
+  position: relative; width: var(--seal-size-tiny); height: var(--seal-size-tiny);
+  border: var(--border); border-radius: var(--radius-sm);
+  background: repeating-linear-gradient(45deg, var(--meter-track) 0 6px, transparent 6px 12px);
+}
+.seal-empty h4 { font-size: var(--fs-15); color: var(--brand); letter-spacing: var(--ls-3); margin: 0; }
+.seal-empty .meta small { color: var(--faint); }
 </style>
