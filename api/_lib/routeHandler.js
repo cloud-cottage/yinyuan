@@ -164,6 +164,10 @@ export function createRouteHandler(routeName, options = {}) {
   const authenticate = typeof options.authenticate === 'function' ? options.authenticate : null
   const run = options.run
   const db = options.db || null
+  // ★ `dbAccess: false`（公开面 config / plans）：**跳过云库句柄解析** ⇒ 云库未配置的环境
+  //   也能回 200（否则 `resolveDb` 抛 NotConfiguredError ⇒ 公开价格表变 503）。
+  //   缺省 true ＝ 既有全部路由逐字不变。
+  const dbAccess = options.dbAccess !== false
   const methodsWithBody = new Set(['POST', 'PUT', 'PATCH'])
   if (typeof run !== 'function') throw new TypeError('createRouteHandler 需要 options.run')
 
@@ -203,7 +207,7 @@ export function createRouteHandler(routeName, options = {}) {
         }
       }
 
-      const result = await run({ req, body, db: await resolveDb(db), auth })
+      const result = await run({ req, body, db: dbAccess ? await resolveDb(db) : db, auth })
       if (!result || typeof result !== 'object' || typeof result.status !== 'number') {
         throw new Error('route handler did not return {status, body}')
       }

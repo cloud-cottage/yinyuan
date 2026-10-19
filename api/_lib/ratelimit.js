@@ -276,7 +276,10 @@ export async function enforceRateLimit(req, res, apiKey, options = {}) {
 export const AUTH_THROTTLE = Object.freeze({
   LOGIN_IP: Object.freeze({ scope: 'auth:login:ip', limit: 30, windowSeconds: 600 }),
   LOGIN_ACCOUNT: Object.freeze({ scope: 'auth:login:acct', limit: 10, windowSeconds: 600 }),
-  REGISTER: Object.freeze({ scope: 'auth:register', limit: 5, windowSeconds: 60 * 60 })
+  REGISTER: Object.freeze({ scope: 'auth:register', limit: 5, windowSeconds: 60 * 60 }),
+  // 演示一键登录（2026-10-19）：只按 IP 计（请求方不指定账号 ⇒ 无「按账号」维度）。
+  // 与 LOGIN_IP **同量级同窗口**，但独立 scope ⇒ 演示按钮的点击不消耗真实登录的额度。
+  DEMO_LOGIN_IP: Object.freeze({ scope: 'auth:demo-login:ip', limit: 30, windowSeconds: 600 })
 })
 
 /** 固定窗口序号（`floor(now / 窗口)`）—— 序号一变即新键，天然无需「删键解锁」。 */

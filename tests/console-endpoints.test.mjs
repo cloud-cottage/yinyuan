@@ -7,11 +7,12 @@
  *
  * 覆盖：
  *   1) 9 条端点逐条 200 形状 + 关键值（config / plans / account / usage×5 / ledger）
+ *      —— config / plans 为**公开面**（无会话 200），其余 7 条仍会话必填
  *   2) 无数据路径：全 0 / 空数组 / 200（**不 404、不 500**）
  *   3) 越权与隔离：只读本用户；`u_org_env` 与他人行**不得**被算进客户账号
  *   4) seeded 可区分：汇总 `seededCalls`、明细 `seeded` 透出
  *   5) 聚合显式 limit（500）；导出**游标分批**（>1 批）＋ BOM ＋ 双口径汇总行
- *   6) 失败面：401（缺/坏会话）、405 + Allow、400（limit=abc / dim 非法）、404 JSON 信封
+ *   6) 失败面：401（缺/坏会话，仅 7 条会话端点）、405 + Allow、400（limit=abc / dim 非法）、404 JSON 信封
  *
  * 跑法：`node tests/console-endpoints.test.mjs`（退出码 0 ＝ 全绿）
  */
@@ -404,10 +405,8 @@ async function main() {
   const tokenB = tokenFor(USER_B)
 
   try {
-    section('鉴权面（9 条端点统一）')
+    section('鉴权面（7 条控制台端点统一；config/plans 已公开）')
     for (const path of [
-      '/api/v1/config',
-      '/api/v1/plans',
       '/api/v1/account',
       '/api/v1/usage/summary',
       '/api/v1/usage/breakdown',
@@ -422,6 +421,18 @@ async function main() {
       const badToken = await request(port, path, { token: 'not-a-real-token' })
       ok(`${path} 坏会话 ⇒ 401`, badToken.status === 401, badToken.status)
     }
+
+    section('公开只读面（config / plans 无会话）')
+    const pubConfig = await request(port, '/api/v1/config')
+    ok('config 无会话 ⇒ 200（公开面）', pubConfig.status === 200, pubConfig.status)
+    ok('config 无会话 data.ok', Boolean(pubConfig.body && pubConfig.body.ok === true && pubConfig.body.data), pubConfig.body)
+    const pubPlans = await request(port, '/api/v1/plans')
+    ok('plans 无会话 ⇒ 200（公开面）', pubPlans.status === 200, pubPlans.status)
+    eq('plans 无会话三档', pubPlans.body && pubPlans.body.data.plans.length, 3)
+    const secConfig = await request(port, '/api/v1/config', { token: tokenA })
+    ok('config 带会话仍 200', secConfig.status === 200, secConfig.status)
+    const secPlans = await request(port, '/api/v1/plans', { token: tokenA })
+    ok('plans 带会话仍 200', secPlans.status === 200, secPlans.status)
 
     const postConfig = await request(port, '/api/v1/config', { method: 'POST', token: tokenA })
     ok('POST /config ⇒ 405', postConfig.status === 405, postConfig.status)
