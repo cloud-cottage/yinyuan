@@ -1,14 +1,21 @@
 /**
  * 真实数据源实现（R-101 二次封装：A27 消费 xiai TileSplicer API）。
  *
- * 现状（**已接线两组，其余仍是明确失败**）：
+ * 现状（**已接线，其余仍是明确失败**）：
  *   · **A2 `register` / A3 `login` / A4 `logout` / `getSession`** —— 接 B2 会话端点
  *     （`src/data/api/auth.js`；会话落 sessionStorage，401 / 过期即清）；
  *   · **A5 `listApiKeys` / A6 `createApiKey` / A7 `rotateApiKey` / A8 `setApiKeyStatus` /
  *     A9 `deleteApiKey`** —— 接 B2 密钥端点（`src/data/api/keys.js`；`plain` 只经
  *     `plaintextOnce` 交给页面一次，不落存储、不写日志）；
+ *   · **A1 `getAppConfig`** —— `src/data/api/config.js`（服务端白名单投影，`demo` 无口令）；
+ *   · **A10–A14 `getUsageSummary` / `getUsageBreakdown` / `getUsageTrend` / `listUsageRecords` /
+ *     `exportUsage`** —— `src/data/api/usage.js`（页面筛选 → 端点参数映射；`seeded` 示例标记透出；
+ *     导出回 JSON 信封，CSV 在 `content`，下载由页面 Blob 触发）；
+ *   · **A15 `getAccount`** —— `src/data/api/account.js`（`accountExists:false` ⇒ 如实 0，非错误）；
+ *   · **A16 / A17 `getPlans` / `getPricingTable`** —— `src/data/api/plans.js`（单端点两段）；
+ *   · **A24 `listLedgerEntries`** —— `src/data/api/ledger.js`（`collectionReady:false` ⇒ 如实空态）；
  *   · **A27 `getDisplaySlices`** —— 接 xiai 侧 TileSplicer 只读 API。
- * 其余方法仍为「未接入」的明确失败 —— 本文件**绝不返回伪造数据**。
+ * 其余方法（A18–A23 / A25–A26 / A28–A31）仍为「未接入」的明确失败 —— 本文件**绝不返回伪造数据**。
  *
  * 边界（R-103 跨工程单向边界）：
  *   ① 只经 **HTTP 契约**消费 xiai（`/api/tilesplicer/v1`，经 yinsuo 自己的 Vite 代理转 127.0.0.1:5163）；
@@ -29,6 +36,11 @@ import { PRICING } from '@/config/pricing.js'
 import { toCstDate } from '@/data/time.js'
 import * as authAdapter from './auth.js'
 import * as keysAdapter from './keys.js'
+import * as configAdapter from './config.js'
+import * as plansAdapter from './plans.js'
+import * as accountAdapter from './account.js'
+import * as usageAdapter from './usage.js'
+import * as ledgerAdapter from './ledger.js'
 
 /** 统一未接入失败（页面应展示错误态 + 「演示环境：该功能未接入」）。 */
 function notConnected(method, endpoint) {
@@ -50,6 +62,7 @@ export const ENDPOINTS = Object.freeze({
   getAppConfig: 'GET /api/v1/config',
   register: 'POST /api/v1/auth/register',
   login: 'POST /api/v1/auth/login',
+  loginDemo: 'POST /api/v1/auth/demo-login',
   logout: 'POST /api/v1/auth/logout',
   getSession: 'GET /api/v1/me',
   listApiKeys: 'GET /api/v1/keys',
@@ -96,6 +109,7 @@ for (const [name, endpoint] of Object.entries(ENDPOINTS)) {
  * ========================================================================== */
 apiImpl.register = (input) => authAdapter.register(input)
 apiImpl.login = (account, password) => authAdapter.login(account, password)
+apiImpl.loginDemo = () => authAdapter.demoLogin()
 apiImpl.logout = () => authAdapter.logout()
 apiImpl.getSession = () => authAdapter.me()
 
@@ -104,6 +118,32 @@ apiImpl.createApiKey = (input) => keysAdapter.create(input)
 apiImpl.rotateApiKey = (kid) => keysAdapter.rotate(kid)
 apiImpl.setApiKeyStatus = (kid, status) => keysAdapter.setStatus(kid, status)
 apiImpl.deleteApiKey = (kid) => keysAdapter.remove(kid)
+
+/* ==========================================================================
+ * A1 / A10–A17 / A24 —— 站点配置、用量读面、额度账户、套餐价格、账单流水
+ *
+ * 只做**转发**：信封拆解、参数映射（页面筛选 → 端点参数）、字段显式化、
+ * `seeded` 标记透出全部落在各面文件里（config / usage / account / plans / ledger），
+ * 页面可见的方法签名与 mock 实现完全一致（`@/data` 出口零改动）。
+ *
+ * ★ 页面契约不变：A11 `getUsageBreakdown(filter, dim)` / A12 `getUsageTrend(filter, bucket)` /
+ *   A13 `listUsageRecords(filter, {page, pageSize})` / A24 `listLedgerEntries(filter, {page, pageSize})`
+ *   的参数形状原样接收，适配层负责换算（见各文件头部的映射表）。
+ * ========================================================================== */
+apiImpl.getAppConfig = (options) => configAdapter.getAppConfig(options)
+
+apiImpl.getUsageSummary = (filter) => usageAdapter.getUsageSummary(filter)
+apiImpl.getUsageBreakdown = (filter, dim) => usageAdapter.getUsageBreakdown(filter, dim)
+apiImpl.getUsageTrend = (filter, bucket) => usageAdapter.getUsageTrend(filter, bucket)
+apiImpl.listUsageRecords = (filter, page) => usageAdapter.listUsageRecords(filter, page)
+apiImpl.exportUsage = (filter) => usageAdapter.exportUsage(filter)
+
+apiImpl.getAccount = (options) => accountAdapter.getAccount(options)
+
+apiImpl.getPlans = () => plansAdapter.getPlans()
+apiImpl.getPricingTable = () => plansAdapter.getPricingTable()
+
+apiImpl.listLedgerEntries = (filter, page) => ledgerAdapter.listLedgerEntries(filter, page)
 
 /* ==========================================================================
  * A27 —— 展示切片（R-101 二次封装：消费 xiai TileSplicer API）

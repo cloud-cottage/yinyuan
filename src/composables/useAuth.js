@@ -3,7 +3,7 @@
  * 页面不得直接 import mock：只经 '@/data' 的 A2/A3/A4 方法。
  */
 import { computed, ref } from 'vue'
-import { getSession, login as adapterLogin, logout as adapterLogout, register as adapterRegister } from '@/data'
+import { getSession, login as adapterLogin, loginDemo as adapterLoginDemo, logout as adapterLogout, register as adapterRegister } from '@/data'
 
 const EMPTY_FLAGS = Object.freeze({})
 
@@ -57,6 +57,14 @@ export function useAuth() {
     ensureSession,
     async signIn(account, password) {
       const result = await adapterLogin(account, password)
+      user.value = result.user
+      bootPromise = Promise.resolve(result.user)
+      initialized.value = true
+      return result
+    },
+    /** 演示账号一键登录：api 模式由服务端预置账号签发（不传口令）；mock 模式等价于用配置凭证登录。 */
+    async signInDemo() {
+      const result = await adapterLoginDemo()
       user.value = result.user
       bootPromise = Promise.resolve(result.user)
       initialized.value = true

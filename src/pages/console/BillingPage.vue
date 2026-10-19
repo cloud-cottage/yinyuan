@@ -1,8 +1,14 @@
 <template>
   <ConsoleShell crumb="控制台 / 充值账单" spec-ref="P-M1-07">
     <NoticeBar variant="banner">
-      <b>未接入真实支付通道</b> —— 本页的账户余额、充值订单与账单流水均为界面示意值，非报价；
-      假扫码支付仅用于演示四态闭环（待支付 / 成功 / 失败 / 超时）。
+      <template v-if="isMock">
+        <b>未接入真实支付通道</b> —— 本页的账户余额、充值订单与账单流水均为界面示意值，非报价；
+        假扫码支付仅用于演示四态闭环（待支付 / 成功 / 失败 / 超时）。
+      </template>
+      <template v-else>
+        <b>未接入真实支付通道</b> —— 账户余额与账期取自服务端（非示意值）；充值下单与扫码支付本轮仍未接入，
+        相关按钮会明确提示「未接入」，不会产生任何真实扣款。
+      </template>
     </NoticeBar>
 
     <!-- ============ 07-1 账户区 ============ -->
@@ -22,9 +28,17 @@
           （上限 {{ formatCalls(account.data.value.quotaTotalCalls) }}，已用 {{ formatCalls(account.data.value.quotaUsedCalls) }}）
         </p>
         <p class="note" style="margin-top:4px;">
-          一致性自检：流水合计 {{ formatCents(account.data.value.consistency.ledgerSumCents) }}
-          ＝ 余额 {{ formatCents(account.data.value.balanceCents) }}
-          <b>{{ account.data.value.consistency.consistent ? '一致 ✓' : '不一致 ✗（演示态告警）' }}</b>
+          <template v-if="consistency">
+            一致性自检：流水合计 {{ formatCents(consistency.ledgerSumCents) }}
+            ＝ 余额 {{ formatCents(account.data.value.balanceCents) }}
+            <b>{{ consistency.consistent ? '一致 ✓' : '不一致 ✗（演示态告警）' }}</b>
+          </template>
+          <template v-else>
+            一致性自检：<b>暂无法自检</b>（账单流水尚未开通，余额为服务端账户值，页面不做本地推算）
+          </template>
+        </p>
+        <p v-if="account.data.value.accountExists === false" class="note" data-block="account-empty">
+          该账号尚未开通额度账户：余额与包量均为 0（如实空账号，不是读取失败）。
         </p>
       </div>
     </StateBlock>
@@ -141,7 +155,7 @@
       </span>
     </div>
 
-    <StateBlock :state="orders.state.value" empty-title="暂无订单" error-text="读取订单失败" @retry="loadAll">
+    <StateBlock :state="orders.state.value" empty-title="暂无订单" :error-text="ordersErrorText" @retry="loadAll">
       <div v-if="orders.data.value" class="table-wrap">
         <table class="tbl">
           <thead>
@@ -207,7 +221,7 @@
       <button v-if="ledgerTypes.length" class="btn ghost sm" type="button" @click="resetLedgerFilter">重置类型</button>
     </div>
 
-    <StateBlock :state="ledger.state.value" empty-title="当前筛选无流水" empty-text="可放宽时间范围或取消类型筛选" error-text="读取流水失败" @retry="loadLedger">
+    <StateBlock :state="ledger.state.value" :empty-title="ledgerEmptyTitle" :empty-text="ledgerEmptyText" error-text="读取流水失败" @retry="loadLedger">
       <div v-if="ledger.data.value" class="table-wrap">
         <table class="tbl">
           <thead>
@@ -325,6 +339,7 @@ import ConsoleShell from '@/components/ConsoleShell.vue'
 import NoticeBar from '@/components/NoticeBar.vue'
 import StateBlock from '@/components/StateBlock.vue'
 import {
+  RESOLVED_DATA_SOURCE,
   createRechargeOrder, getAccount, getAppConfig, getPricingTable, getRechargeOrder,
   listLedgerEntries, listRechargeOrders, settleRechargeOrder, simulatePayResult, toCstDateTime,
 } from '@/data'
@@ -351,11 +366,37 @@ const ledger = useAsync(listLedgerEntries)
 const accountData = computed(() => account.data.value)
 const tableData = computed(() => table.data.value)
 
-/** 07-1：套餐档位名（由 A17 档位表 + A15 的 planId 解析，不硬编码）。 */
+/** 当前数据源：声明条文案与「一致性自检 / 流水空态」措辞按它切换（mock 保持原文案）。 */
+const isMock = RESOLVED_DATA_SOURCE === 'mock'
+
+/**
+ * 一致性自检（Σ流水 = 余额）：只有适配层给了**布尔**结论才展示结论；
+ * 接口模式下 A15 不提供该结论（流水集合未就绪，`consistency:null`）⇒ 页面显示「暂无法自检」，
+ * 绝不把「没有流水可对」渲染成「一致」或「不一致」。
+ */
+const consistency = computed(() => {
+  const value = accountData.value?.consistency
+  return value && typeof value.consistent === 'boolean' ? value : null
+})
+
+/** 流水空态措辞：`collectionReady:false` ⇒ 「暂无流水（未开通）」而不是「筛选无命中」。 */
+const ledgerNotReady = computed(() => ledger.data.value?.collectionReady === false)
+const ledgerEmptyTitle = computed(() => (ledgerNotReady.value ? '暂无流水' : '当前筛选无流水'))
+const ledgerEmptyText = computed(() => (ledgerNotReady.value
+  ? '账单流水尚未开通：当前没有任何流水记录（不是筛选无命中，也不是读取失败）。'
+  : '可放宽时间范围或取消类型筛选'))
+
+/** 充值订单读取失败面：接口模式下该面（A19–A23）本轮未接入 ⇒ 文案如实说明「未接入」，不写「读取失败」。 */
+const ordersErrorText = computed(() => (isMock ? '读取订单失败' : '充值订单暂未接入（本轮不含线上支付）'))
+
+/** 07-1：套餐档位名（服务端 `planName` 优先，其次 A17 档位表 + A15 的 planId，不硬编码）。 */
 const planName = computed(() => {
+  if (accountData.value?.planName) return accountData.value.planName
   const rows = tableData.value?.rows || []
   const planId = accountData.value?.planId
-  return (rows.find((r) => r.planId === planId) || rows[0])?.name || '未开通'
+  const hit = rows.find((r) => r.planId === planId)
+  if (hit) return hit.name
+  return accountData.value && accountData.value.accountExists === false ? '未开通' : '—'
 })
 
 /** 07-1：年费状态（本年已缴 / 未缴 + 有效期）。 */

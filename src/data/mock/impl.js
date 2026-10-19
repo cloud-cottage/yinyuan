@@ -893,6 +893,16 @@ const impl = {
     return clone({ user: publicUser(user), sessionToken: state.session.sessionToken })
   },
 
+  /** A3′ —— 演示账号一键登录（与 api 实现同签名：`loginDemo()`，无参数）。
+   *
+   * 行为与登录页原有「一键登录演示账号」完全一致：凭证取自站点配置
+   * （`APP_CONFIG.demo`，mock 不硬编码），走同一个 `login()` —— 不另开绕过校验的通路。
+   */
+  async loginDemo() {
+    const demo = APP_CONFIG.demo || {}
+    return impl.login(demo.account, demo.password)
+  },
+
   /** A4 —— 退出 */
   async logout() {
     await delay()

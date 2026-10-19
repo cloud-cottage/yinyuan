@@ -4,6 +4,12 @@
       <b>开通成功</b> —— 机构账号已自动开通（演示态），可自助生成 API 密钥并开始调用。
     </NoticeBar>
 
+    <!-- 示例数据声明（仅在**统计里确实含示例记录**时出现；示例量永不并入真实调用量） -->
+    <NoticeBar v-if="monthSeededCalls > 0" variant="status" data-block="seeded-notice">
+      <b>用量含示例数据</b> —— 本月共 {{ formatCalls(monthSeededCalls) }} 次调用为演示预置的<b>示例记录</b>（非真实调用），
+      真实调用 {{ formatCalls(monthRealCalls) }} 次；两者在上方 KPI 与下方图表中分别标注，示例数据不计入真实调用量。
+    </NoticeBar>
+
     <!-- ===================== KPI 卡 ×4 ===================== -->
     <StateBlock
       :state="account.state.value"
@@ -12,11 +18,17 @@
       error-text="读取账户失败"
       @retry="load"
     >
+      <p v-if="acct && acct.accountExists === false" class="note" data-block="account-empty">
+        该账号尚未开通额度账户：以下数值均为 0（如实空账号，不是读取失败）。
+      </p>
       <div v-if="acct" class="kpis">
         <div class="kpi">
           <label>本月调用次数</label>
           <b>{{ formatCalls(acct.quotaUsedCalls) }}<em>/ 包量 {{ formatCalls(acct.quotaTotalCalls) }}</em></b>
           <div class="note">{{ acct.monthKey }}（CST）· 余 {{ formatCalls(acct.quotaRemainCalls) }}</div>
+          <div v-if="monthSeededCalls > 0" class="note" data-block="seeded-calls">
+            其中示例数据 {{ formatCalls(monthSeededCalls) }} 次 · 真实调用 {{ formatCalls(monthRealCalls) }} 次
+          </div>
         </div>
 
         <div class="kpi">
@@ -59,10 +71,16 @@
           <label>账户余额</label>
           <b>{{ formatCents(acct.balanceCents) }}</b>
           <div class="note">
-            Σ流水 = 余额 自检
-            <span :class="acct.consistency?.consistent ? 'state' : 'state warn'">
-              {{ acct.consistency?.consistent ? '通过' : '不一致' }}
-            </span>
+            <template v-if="acct.consistency && typeof acct.consistency.consistent === 'boolean'">
+              Σ流水 = 余额 自检
+              <span :class="acct.consistency.consistent ? 'state' : 'state warn'">
+                {{ acct.consistency.consistent ? '通过' : '不一致' }}
+              </span>
+            </template>
+            <template v-else>
+              Σ流水 = 余额 自检 <span class="state warn">暂无法自检</span>
+              <span>（账单流水尚未开通，余额为服务端账户值）</span>
+            </template>
           </div>
         </div>
       </div>
@@ -73,7 +91,7 @@
       <div class="block-head" style="margin-bottom:8px;">
         <h3 style="margin-bottom:0;">月额度余量</h3>
         <span class="rule"></span>
-        <span class="tag pending">数据为示例</span>
+        <span class="tag pending">{{ dataTag }}</span>
       </div>
       <div class="meter" role="progressbar" :aria-valuenow="quotaPercent" aria-valuemin="0" aria-valuemax="100">
         <i :style="{ width: quotaPercent + '%' }"></i>
@@ -87,7 +105,7 @@
     <!-- ===================== 趋势图 ===================== -->
     <div class="block-head" style="margin-top:22px;">
       <h3>调用趋势</h3><span class="rule"></span>
-      <span class="tag pending">数据为示例</span>
+      <span class="tag pending">{{ dataTag }}</span>
       <div class="mini-seg" role="tablist" aria-label="趋势时间范围">
         <button
           v-for="opt in RANGE_OPTIONS"
@@ -139,7 +157,7 @@
     <!-- ===================== 分布图 ===================== -->
     <div class="block-head" style="margin-top:22px;">
       <h3>调用占比（按接口）· {{ trendRange.label }}</h3><span class="rule"></span>
-      <span class="tag pending">数据为示例</span>
+      <span class="tag pending">{{ dataTag }}</span>
     </div>
 
     <StateBlock
@@ -188,7 +206,7 @@
 
     <div class="block-head" style="margin-top:22px;">
       <h3>调用占比（按密钥）· {{ trendRange.label }}</h3><span class="rule"></span>
-      <span class="tag pending">数据为示例</span>
+      <span class="tag pending">{{ dataTag }}</span>
     </div>
 
     <StateBlock
@@ -212,7 +230,7 @@
       <div>
         <div class="block-head">
           <h3>密钥摘要</h3><span class="rule"></span>
-          <span class="tag pending">数据为示例</span>
+          <span class="tag pending">{{ dataTag }}</span>
         </div>
         <StateBlock
           :state="keys.state.value"
@@ -234,7 +252,7 @@
       <div>
         <div class="block-head">
           <h3>账单摘要 · 最近 3 条</h3><span class="rule"></span>
-          <span class="tag pending">数据为示例</span>
+          <span class="tag pending">{{ dataTag }}</span>
         </div>
         <StateBlock
           :state="ledger.state.value"
@@ -311,7 +329,7 @@ import EntryLink from '@/components/EntryLink.vue'
 import NoticeBar from '@/components/NoticeBar.vue'
 import StateBlock from '@/components/StateBlock.vue'
 import {
-  exportUsage, getAccount, getOriginalQuota, getPricingTable, getUsageBreakdown,
+  RESOLVED_DATA_SOURCE, exportUsage, getAccount, getOriginalQuota, getPricingTable, getUsageBreakdown,
   getUsageSummary, getUsageTrend, listApiKeys, listLedgerEntries, recentCstBuckets, toCstDateTime,
 } from '@/data'
 import { formatBytesParts, formatCalls, formatCents } from '@/config/pricing.js'
@@ -353,6 +371,26 @@ const exporting = ref(false)
 
 const acct = computed(() => account.data.value)
 const monthImages = computed(() => monthSummary.data.value)
+
+/**
+ * 数据状态角标（区块级）：
+ *   · mock 模式            ⇒ 「数据为示例」（保持原文案，演示口径不变）；
+ *   · api 模式 + 含示例行  ⇒ 「含示例数据」（本区间聚合里确有 `seededCalls > 0` 的分组）；
+ *   · api 模式 + 全真实    ⇒ 「线上数据」。
+ * 依据一律是适配层透出的 `seededCalls`，页面不自行猜测。
+ */
+const isMock = RESOLVED_DATA_SOURCE === 'mock'
+const rangeSeededCalls = computed(() => (byEndpoint.data.value?.rows || [])
+  .reduce((sum, row) => sum + (Number(row.seededCalls) || 0), 0))
+const dataTag = computed(() => {
+  if (isMock) return '数据为示例'
+  return rangeSeededCalls.value > 0 ? '含示例数据' : '线上数据'
+})
+/** 本月示例 / 真实调用分列（A10 的 `seededCalls` / `realCalls`；不得把示例量当真实调用量报）。 */
+const monthSeededCalls = computed(() => Number(monthImages.value?.seededCalls) || 0)
+const monthRealCalls = computed(() => (monthImages.value
+  ? Number(monthImages.value.realCalls) || 0
+  : 0))
 /**
  * 04-2 图片流量**双口径**显示三元组（D3 修复）：三数字同单位、同精度，且**合计 = 两个显示值之和**，
  * 屏幕上的「明细 ＋ 展示 ＝ 合计」因此可相加（不再出现 4.3 + 2.5 = 6.7）。

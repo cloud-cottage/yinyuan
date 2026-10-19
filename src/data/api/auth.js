@@ -4,7 +4,7 @@
  *
  * 纪律（与 `src/data/api/image.js` 同构）：
  *   ① **页面不得直接 import 本文件**（spec §8.3-3）——页面只经 `@/data` 的
- *      A2 `register` / A3 `login` / A4 `logout` / `getSession` 取用；
+ *      A2 `register` / A3 `login` / A3′ `loginDemo` / A4 `logout` / `getSession` 取用；
  *   ② 本层**不含**任何演示数据、不在失败时回落到本地数据：服务端说什么就是什么，
  *      连不上就结构化失败（`ok:false` + `reason` + 请求读数）；
  *   ③ **口令不得 trim / 归一化**（服务端口径：`' pass '` 与 `'pass'` 是两个口令）——
@@ -437,6 +437,16 @@ export async function login(account, password) {
   }
 
   const { payload } = await request('/auth/login', { method: 'POST', body })
+  return adoptSession(payload)
+}
+
+/**
+ * 会话落盘 + 统一返回形状 —— `login()` 与 `demoLogin()` **共用同一函数**。
+ *
+ * 只做两件事：归一 `user`（`normalizeUser`）、把 `{token, expires_at, user}` 落 sessionStorage；
+ * 服务端没给 `session` 就如实回空串（不造令牌）。
+ */
+function adoptSession(payload) {
   const user = normalizeUser(payload.user)
   const session = payload.session || null
   if (session && session.token) {
@@ -449,6 +459,18 @@ export async function login(account, password) {
     sessionToken: session ? session.token : '',
     expiresAt: session ? session.expires_at : null,
   }
+}
+
+/**
+ * 演示账号一键登录（`POST /api/v1/auth/demo-login`，**无请求体**）。
+ *
+ * 与 `login()` 的差别**只有请求**：不带任何账号 / 口令（服务端按预置演示账号签发），
+ * 也不从 `src/config/app-config.js` 读凭证 —— api 模式的演示入口**不携带口令**。
+ * 失败面原样抛出（401 未预置 / 405 非 POST / 429 限流 / 503 未配置），由页面给可见反馈。
+ */
+export async function demoLogin() {
+  const { payload } = await request('/auth/demo-login', { method: 'POST' })
+  return adoptSession(payload)
 }
 
 /**

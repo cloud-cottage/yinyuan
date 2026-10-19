@@ -84,7 +84,8 @@
 
           <p v-if="demoSignInAvailable" class="hint" data-block="demo-account">
             演示账号：<code class="mono">{{ demo.account }}</code>（演示态提供，仅用于界面演示）；
-            点击「{{ demo.buttonLabel }}」一次点击即完成登录并进入控制台；登录后如需手动试填，修改账号 / 密码再点「登录」即可
+            <template v-if="isMock">点击「{{ demo.buttonLabel }}」一次点击即完成登录并进入控制台；登录后如需手动试填，修改账号 / 密码再点「登录」即可</template>
+            <template v-else>点击「{{ demo.buttonLabel }}」由服务端为该预置演示账号直接签发会话（无需填写上方表单，也不外发口令），一次点击即进入控制台</template>
           </p>
           <p v-if="submitting" class="hint" data-hint="submitting">正在校验登录信息，请稍候…</p>
 
@@ -127,18 +128,17 @@ import { RESOLVED_DATA_SOURCE, isAuthFailure, isRateLimited, isServiceUnavailabl
 const router = useRouter()
 const route = useRoute()
 const { demo, loadAppConfig } = useAppConfig()
-const { signIn } = useAuth()
+const { signIn, signInDemo } = useAuth()
 
 /** 当前数据源：文案与错误分派按它切换（`mock` 展示演示口径，`api` 展示真实账号口径）。 */
 const isMock = RESOLVED_DATA_SOURCE === 'mock'
 
 /**
- * 演示账号入口是否显现（两段门控，互不耦合）：
- *   ① 配置开关 `demo.signInEnabled`（文案 / 凭证 / 验证码占位值同样来自配置）；
- *   ② 数据源门控 —— 当前只在演示数据源下显现，因为真实端点尚无服务端预置演示账号。
- * 将来 api 模式接入服务端演示账号时只需放开②，按钮、文案与登录流程（走 `@/data` 适配层）原样复用。
+ * 演示账号入口是否显现（只由配置开关 `demo.signInEnabled` 决定，mock / api 两种数据源都显现）：
+ *   · 文案来自配置（口令除外 —— api 模式的 `demo` 段不含口令，也不需要口令）；
+ *   · 点击行为按数据源分派：mock ⇒ 填表走既有 `submit()`；api ⇒ `signInDemo()`（服务端签发，无请求体）。
  */
-const demoSignInAvailable = computed(() => !!demo.value?.signInEnabled && isMock)
+const demoSignInAvailable = computed(() => !!demo.value?.signInEnabled)
 
 /** 401 统一文案（服务端反探测：账号不存在 / 口令错 / 停用**同形同文案**，此处不再细分）。 */
 const AUTH_FAILED_TEXT = '手机号 / 邮箱或口令不正确'
@@ -178,19 +178,77 @@ onMounted(async () => {
 })
 
 /**
- * 03-3：一键演示登录 —— 先填凭证（含占位图形验证码），随即走既有 `submit()` 提交。
+ * 03-3：一键演示登录（按数据源分派，两条通路都经 `@/data` 适配层，不绕过会话落盘）：
  *
- * 与「手动提交」共用同一条校验 / 登录 / 回跳链路：不做任何绕过（验证码仍是非空校验，
- * 这里填的是占位图形的字面值，来自配置）；登录失败时字段保留在表单里，
- * 用户可修改账号 / 密码后点「登录」，行为与手动输入完全一致。
+ *   · **mock**：先填凭证（含占位图形验证码），随即走既有 `submit()` —— 与「手动提交」共用
+ *     同一条校验 / 登录 / 回跳链路（不做任何绕过，验证码仍是非空校验）。
+ *   · **api**：不填表单、不传口令 —— `signInDemo()` 打 `POST /api/v1/auth/demo-login`（无请求体），
+ *     服务端为预置演示账号签发会话。失败（401 / 429 / 503 / 网络）一律**可见**，绝不静默成功。
  */
 async function demoSignIn() {
   const cred = demo.value
   if (!cred) return
-  form.account = cred.account
-  form.password = cred.password
-  form.captcha = cred.captcha
-  await submit()
+  if (isMock) {
+    form.account = cred.account
+    form.password = cred.password
+    form.captcha = cred.captcha
+    await submit()
+    return
+  }
+
+  submitError.value = ''
+  delete serverError.account
+  submitting.value = true
+  try {
+    await signInDemo()
+    await redirectAfterLogin()
+  } catch (e) {
+    handleDemoFailure(e)
+  } finally {
+    submitting.value = false
+  }
+}
+
+/** 登录成功后的回跳：仅接受站内 `/console/**` 目标，其余一律回概览。 */
+function redirectAfterLogin() {
+  const raw = typeof route.query.redirect === 'string' ? route.query.redirect : ''
+  const target = raw.startsWith('/console') ? raw : null
+  return router.replace(target || { name: 'console-overview' })
+}
+
+/**
+ * 手动登录失败分派（B3）：
+ *   · 401 → **统一文案**内联到账号字段（服务端反探测，前端也不细分账号/口令/停用）；
+ *   · 429 → 「稍后再试」（限流，非凭据问题 ⇒ 不指责账号）；
+ *   · 503 / 网络 → 服务不可用类提示（不是用户错，不要暗示口令有误）；
+ *   · 其余 → 服务端文案。
+ */
+function handleLoginFailure(e) {
+  if (isAuthFailure(e)) {
+    serverError.account = AUTH_FAILED_TEXT
+  } else if (isRateLimited(e)) {
+    submitError.value = RATE_LIMITED_TEXT
+  } else if (isServiceUnavailable(e) || e?.reason === 'NETWORK_ERROR') {
+    submitError.value = e?.message || '登录服务暂时不可用，请稍后重试'
+  } else {
+    submitError.value = e?.message || '登录失败，请稍后重试'
+  }
+}
+
+/**
+ * 演示一键登录失败分派（api 模式）：表单里没填东西 ⇒ 错误一律走**页面级内联提示**，
+ * 文案点明是「演示账号入口」出的问题（不要把 401 说成用户口令错 —— 用户根本没输口令）。
+ */
+function handleDemoFailure(e) {
+  if (isRateLimited(e)) {
+    submitError.value = RATE_LIMITED_TEXT
+  } else if (isAuthFailure(e)) {
+    submitError.value = '演示账号登录失败：服务端未预置该演示账号（401），请改用账号 / 口令登录'
+  } else if (isServiceUnavailable(e) || e?.reason === 'NETWORK_ERROR') {
+    submitError.value = e?.message || '演示账号登录暂时不可用，请稍后重试'
+  } else {
+    submitError.value = e?.message || '演示账号登录失败，请稍后重试'
+  }
 }
 
 async function submit() {
@@ -203,27 +261,9 @@ async function submit() {
   submitting.value = true
   try {
     await signIn(form.account, form.password)
-    /** `redirect` 回跳：仅接受站内 `/console/**` 目标，其余一律回概览。 */
-    const raw = typeof route.query.redirect === 'string' ? route.query.redirect : ''
-    const target = raw.startsWith('/console') ? raw : null
-    await router.replace(target || { name: 'console-overview' })
+    await redirectAfterLogin()
   } catch (e) {
-    /**
-     * 错误分派（B3）：
-     *   · 401 → **统一文案**内联到账号字段（服务端反探测，前端也不细分账号/口令/停用）；
-     *   · 429 → 「稍后再试」（限流，非凭据问题 ⇒ 不指责账号）；
-     *   · 503 / 网络 → 服务不可用类提示（不是用户错，不要暗示口令有误）；
-     *   · 其余 → 服务端文案。
-     */
-    if (isAuthFailure(e)) {
-      serverError.account = AUTH_FAILED_TEXT
-    } else if (isRateLimited(e)) {
-      submitError.value = RATE_LIMITED_TEXT
-    } else if (isServiceUnavailable(e) || e?.reason === 'NETWORK_ERROR') {
-      submitError.value = e?.message || '登录服务暂时不可用，请稍后重试'
-    } else {
-      submitError.value = e?.message || '登录失败，请稍后重试'
-    }
+    handleLoginFailure(e)
   } finally {
     submitting.value = false
   }

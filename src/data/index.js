@@ -21,6 +21,7 @@ export const RESOLVED_DATA_SOURCE = DATA_SOURCE
 export const getAppConfig = impl.getAppConfig          // A1
 export const register = impl.register                  // A2
 export const login = impl.login                        // A3
+export const loginDemo = impl.loginDemo                // A3′（演示账号一键登录；api 模式无请求体，不传口令）
 export const logout = impl.logout                      // A4
 export const getSession = impl.getSession              // A4
 export const listApiKeys = impl.listApiKeys            // A5

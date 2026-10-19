@@ -55,7 +55,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { getAccount, getPricingTable, RESOLVED_DATA_SOURCE } from '@/data'
+import { getAccount, getAppConfig, getPricingTable, RESOLVED_DATA_SOURCE } from '@/data'
 import { useAsync } from '@/composables/useAsync.js'
 import { useAuth } from '@/composables/useAuth.js'
 
@@ -66,19 +66,33 @@ defineProps({
 
 const router = useRouter()
 const { user, signOut } = useAuth()
-/** §4.3：外壳也不得直接读配置模块，一律经适配层（A15 / A17）。 */
+/** §4.3：外壳也不得直接读配置模块，一律经适配层（A1 / A15 / A17）。 */
+const appConfig = useAsync(getAppConfig, { immediate: true })
 const table = useAsync(getPricingTable, { immediate: true })
 const account = useAsync(getAccount, { immediate: true })
 
+/**
+ * **生效数据源**（角标与脚注的唯一判据）：
+ *   ① 优先取 A1 `config.dataSource`（服务端自报，`api` 模式恒为 `api`）；
+ *   ② 未取到（加载中 / 读取失败 / 旧实现未给该字段）⇒ 回落构建期单一开关 `RESOLVED_DATA_SOURCE`。
+ * 目的：api 模式下**不得**再出现「演示数据 / 示例数据 / 界面示意值」这类与事实相反的声明。
+ */
+const dataSource = computed(() => appConfig.data.value?.dataSource || RESOLVED_DATA_SOURCE)
+const isMock = computed(() => dataSource.value === 'mock')
+
 const planName = computed(() => {
+  const acct = account.data.value
+  /** 服务端直接给可读档位名（A15 `planName`）⇒ 用之（接口模式下的权威来源）。 */
+  if (acct?.planName) return acct.planName
+  const planId = acct?.planId || user.value?.planId
   const list = table.data.value?.rows || []
-  const planId = user.value?.planId
-  return (list.find((p) => p.planId === planId) || list[0])?.name || '未开通'
+  const hit = list.find((p) => p.planId === planId)
+  if (hit) return hit.name
+  if (acct && acct.accountExists === false) return '未开通'
+  return planId ? '未开通' : '—'
 })
 
-const stateNote = computed(() => `数据状态：${RESOLVED_DATA_SOURCE === 'api' ? '线上数据' : '演示数据'}`)
-/** 声明条 / 侧栏脚注按数据源切换（真实实现下不得声称「示例数据」）。 */
-const isMock = RESOLVED_DATA_SOURCE === 'mock'
+const stateNote = computed(() => `数据状态：${isMock.value ? '演示数据' : '线上数据'}`)
 /** 声明条文案来自 A17（getPricingTable().disclaimer），不再直接 import PRICING。 */
 const disclaimer = computed(
   () => table.data.value?.disclaimer || '本页金额、单价、用量数字均为界面示意值，非报价',

@@ -2,15 +2,22 @@
   <ConsoleShell crumb="控制台 / 用量明细">
     <!-- ===================== 06-8 声明条 ===================== -->
     <NoticeBar variant="status">
-      <b>用量数据为界面示意值</b> —— 本页汇总、聚合、趋势、明细与导出均来自同一套筛选条件，
-      页面自身即可对账；导出件与本页逐项一致。数据为示例，时间均为北京时间（CST）。
-      筛选状态固化在网址里，可复制链接分享或收藏。
+      <template v-if="isMock">
+        <b>用量数据为界面示意值</b> —— 本页汇总、聚合、趋势、明细与导出均来自同一套筛选条件，
+        页面自身即可对账；导出件与本页逐项一致。数据为示例，时间均为北京时间（CST）。
+        筛选状态固化在网址里，可复制链接分享或收藏。
+      </template>
+      <template v-else>
+        <b>用量数据取自服务端</b> —— 汇总、聚合、趋势、明细与导出来自同一套筛选条件，页面自身即可对账；
+        标注「示例」的记录为演示预置数据，已与真实调用分列统计，不并入真实调用量。时间均为北京时间（CST）。
+        筛选状态固化在网址里，可复制链接分享或收藏。
+      </template>
     </NoticeBar>
 
     <!-- ===================== 06-1 筛选器组 ===================== -->
     <div class="block-head" style="margin-top:22px;">
       <h3>筛选条件</h3><span class="rule"></span>
-      <span class="tag pending">数据为示例</span>
+      <span class="tag pending">{{ dataTag }}</span>
     </div>
 
     <section class="card filter-card" aria-label="用量筛选条件">
@@ -82,9 +89,14 @@
         <span class="note">接口按路由模板归组：同一路径的不同参数合并为一组</span>
       </div>
 
-      <div class="frow">
+      <div v-if="isMock" class="frow">
         <span class="frow-label">环境</span>
         <SegmentedControl v-model="env" variant="chips" aria-label="环境" :options="ENV_OPTIONS" @change="onFilterChange" />
+        <button class="btn ghost sm" type="button" @click="resetFilters">重置筛选</button>
+      </div>
+      <div v-else class="frow">
+        <span class="frow-label">环境</span>
+        <span class="note">服务端用量记录不含「测试 / 线上」环境维度，环境筛选在线上数据下不适用（此处不显示假筛选项）。</span>
         <button class="btn ghost sm" type="button" @click="resetFilters">重置筛选</button>
       </div>
 
@@ -96,7 +108,7 @@
     <!-- ===================== 06-2 汇总条（双口径） ===================== -->
     <div class="block-head" style="margin-top:22px;">
       <h3>区间汇总 · {{ rangeLabel }}</h3><span class="rule"></span>
-      <span class="tag pending">数据为示例</span>
+      <span class="tag pending">{{ dataTag }}</span>
       <button
         class="btn ghost sm"
         type="button"
@@ -119,6 +131,9 @@
           <label>调用次数</label>
           <b>{{ formatCalls(summaryData.calls) }}</b>
           <div class="note">区间内全部请求，含失败请求</div>
+          <div v-if="seededCallsInWindow > 0" class="note" data-block="seeded-calls">
+            其中示例数据 {{ formatCalls(seededCallsInWindow) }} 次 · 真实调用 {{ formatCalls(realCallsInWindow) }} 次
+          </div>
         </div>
         <div class="kpi">
           <label>计费调用</label>
@@ -195,7 +210,7 @@
     <!-- ===================== 06-4 趋势图 ===================== -->
     <div class="block-head" style="margin-top:22px;">
       <h3>调用量 / 图片流量趋势 · {{ rangeLabel }}</h3><span class="rule"></span>
-      <span class="tag pending">数据为示例</span>
+      <span class="tag pending">{{ dataTag }}</span>
     </div>
 
     <StateBlock
@@ -275,7 +290,7 @@
     <!-- ===================== 06-3 三维表 ===================== -->
     <div class="block-head" style="margin-top:22px;">
       <h3>用量聚合 · 三维视图</h3><span class="rule"></span>
-      <span class="tag pending">数据为示例</span>
+      <span class="tag pending">{{ dataTag }}</span>
     </div>
 
     <SegmentedControl v-model="dim" variant="dim" aria-label="聚合维度" :options="DIM_OPTIONS" />
@@ -364,7 +379,7 @@
     <!-- ===================== 06-5 明细表 + 06-6 导出 ===================== -->
     <div class="block-head" style="margin-top:22px;">
       <h3>调用明细 · {{ rangeLabel }}</h3><span class="rule"></span>
-      <span class="tag pending">数据为示例</span>
+      <span class="tag pending">{{ dataTag }}</span>
       <button
         class="btn sm"
         type="button"
@@ -404,6 +419,7 @@
               <th>图片张数</th>
               <th>图片字节数</th>
               <th>是否计费</th>
+              <th>数据属性</th>
               <th>traceId</th>
             </tr>
           </thead>
@@ -418,6 +434,10 @@
               <td>{{ rec.imageCount }} 张</td>
               <td>{{ formatBytesExact(rec.imageBytes) }}</td>
               <td :class="rec.isBillable ? 'state' : 'note'">{{ rec.isBillable ? '计费' : '不计费' }}</td>
+              <td>
+                <span v-if="rec.seeded" class="tag soft" data-seeded="1">示例</span>
+                <span v-else class="note">真实</span>
+              </td>
               <td class="mono">{{ rec.traceId || '—' }}</td>
             </tr>
           </tbody>
@@ -446,8 +466,14 @@
 
     <!-- ===================== 页脚声明 ===================== -->
     <NoticeBar variant="status" style="margin-top:22px;">
-      <b>声明</b> —— 「数据为示例」：本页金额、用量、密钥展示均为界面示意值，非真实凭据；
-      页面数字与导出件汇总同源同区间，可逐项对账；时间均为北京时间（CST）。
+      <template v-if="isMock">
+        <b>声明</b> —— 「数据为示例」：本页金额、用量、密钥展示均为界面示意值，非真实凭据；
+        页面数字与导出件汇总同源同区间，可逐项对账；时间均为北京时间（CST）。
+      </template>
+      <template v-else>
+        <b>声明</b> —— 本页用量与费用取自服务端；标注「示例」的记录为演示预置数据，已单独计数、
+        不并入真实调用量；页面数字与导出件汇总同源同区间，可逐项对账；时间均为北京时间（CST）。
+      </template>
     </NoticeBar>
   </ConsoleShell>
 </template>
@@ -477,7 +503,7 @@ import NoticeBar from '@/components/NoticeBar.vue'
 import SegmentedControl from '@/components/SegmentedControl.vue'
 import StateBlock from '@/components/StateBlock.vue'
 import {
-  ENV, exportUsage, getUsageBreakdown, getUsageSummary, getUsageTrend,
+  ENV, RESOLVED_DATA_SOURCE, exportUsage, getUsageBreakdown, getUsageSummary, getUsageTrend,
   listApiKeys, listUsageRecords, toCstDate, toCstDateTime, toCstMonth,
 } from '@/data'
 import { formatBytes, formatBytesExact, formatBytesParts, formatCalls } from '@/config/pricing.js'
@@ -683,6 +709,21 @@ const detailPage = computed(() => detail.data.value || null)
 const detailTotal = computed(() => detailPage.value?.total || 0)
 const pageCount = computed(() => Math.max(1, detailPage.value?.totalPages || 1))
 const canExport = computed(() => detailTotal.value > 0)
+
+/** 当前数据源：文案与「环境筛选」可见性按它切换（`mock` 保持原文案）。 */
+const isMock = RESOLVED_DATA_SOURCE === 'mock'
+/**
+ * 数据状态角标：mock ⇒ 「数据为示例」；api 且区间内确有示例行 ⇒ 「含示例数据」；否则 「线上数据」。
+ * 判据是 A10 透出的 `seededCalls`（api）——页面不自行猜测哪条是示例。
+ */
+const seededCallsInWindow = computed(() => Number(summaryData.value?.seededCalls) || 0)
+const realCallsInWindow = computed(() => (summaryData.value
+  ? Number(summaryData.value.realCalls) || 0
+  : 0))
+const dataTag = computed(() => {
+  if (isMock) return '数据为示例'
+  return seededCallsInWindow.value > 0 ? '含示例数据' : '线上数据'
+})
 
 /**
  * 06-2 图片流量**双口径**显示三元组：三数字同单位、同精度，且**合计 = 两个显示值之和**
