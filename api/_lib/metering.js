@@ -417,12 +417,22 @@ export function startMetering(input = {}) {
 /** 单端点示例条数上限（防止误把演示数据写成巨额）。 */
 export const SEED_MAX_PER_ENDPOINT = 200
 
+/** 示例数据最多铺开的天数（含当天；上限 31 天＝一个自然月）。 */
+export const SEED_MAX_DAYS = 31
+
+/** 一天毫秒数（CST 自然日换算用）。 */
+const DAY_MS = 24 * 60 * 60 * 1000
+
 /**
  * 预置**标记为示例**的用量：一行一行写明细（`seeded:true`），再按确实新建的条数累加日聚合。
  * `trace_id` 为确定性派生 ⇒ **重跑不重复**（第二次全部 deduped）。
  *
+ * `days`（默认 1）：把该端点的示例铺到**最近 N 个 CST 自然日**（含当天），供控制台趋势图有形状。
+ * 每行时间由 `(i, days)` 确定性派生 ⇒ 同一天重跑得到同一批 `trace_id`；跨天重跑会落在新的
+ * 自然日上（示例数据本就按"当前窗口"造，不做历史回填）。
+ *
  * @param {object} db
- * @param {{userId:string, kid?:string, cstDate?:string, now?:*,
+ * @param {{userId:string, kid?:string, now?:*, days?:number,
  *          endpoints:Array<{endpoint:string, count:number, billableCount?:number}>}} input
  * @returns {Promise<{ok:boolean, created:number, skipped:number, reason?:string}>}
  */
@@ -431,7 +441,7 @@ export async function seedUsage(db, input = {}) {
   if (userId === '') return { ok: false, created: 0, skipped: 0, reason: 'INVALID_INPUT' }
   const kid = String(input.kid || 'demo:seed')
   const nowMs = toMs(input.now)
-  const cstDate = input.cstDate || cstParts(nowMs).cstDate
+  const days = Math.min(SEED_MAX_DAYS, Math.max(1, Math.trunc(Number(input.days) || 1)))
   const specs = Array.isArray(input.endpoints) ? input.endpoints : []
   let created = 0
   let skipped = 0
@@ -444,11 +454,15 @@ export async function seedUsage(db, input = {}) {
       total,
       Math.max(0, Math.trunc(Number(spec && spec.billableCount !== undefined ? spec.billableCount : total)))
     )
-    let createdHere = 0
-    let billableHere = 0
-    let latencySum = 0
+    /** 该端点每天确实新建的条数（按行的 cstDate 分组，聚合必须与明细同日）。 */
+    const perDay = new Map()
     for (let i = 1; i <= total; i += 1) {
-      const traceId = `seed:${userId}:${cstDate}:${endpoint}:${i}`
+      // 时间：最近 days 个自然日；i 越大越靠近现在（i === total ⇒ 今天）。
+      const dayOffset = days > 1 ? (total - i) % days : 0
+      const minutesBack = days > 1 ? dayOffset * 24 * 60 + ((i * 97) % 600) : total - i
+      const atMs = nowMs - minutesBack * 60 * 1000
+      const rowDate = cstParts(atMs).cstDate
+      const traceId = `seed:${userId}:${rowDate}:${endpoint}:${i}`
       const row = buildRecordRow({
         userId,
         kid,
@@ -456,8 +470,8 @@ export async function seedUsage(db, input = {}) {
         method: 'GET',
         statusCode: i <= billable ? 200 : 500,
         traceId,
-        // 示例时间：当天内均匀铺开（只作展示，不参与计费判定）
-        requestedAt: nowMs - (total - i) * 60 * 1000,
+        // 示例时间：确定性铺开（只作展示，不参与计费判定）
+        requestedAt: atMs,
         latencyMs: 80 + ((i * 13) % 60),
         seeded: true
       })
@@ -468,19 +482,21 @@ export async function seedUsage(db, input = {}) {
         continue
       }
       created += 1
-      createdHere += 1
-      latencySum += row.latencyMs
-      if (row.isBillable) billableHere += 1
+      const bucket = perDay.get(row.cstDate) || { count: 0, billable: 0, latencySum: 0 }
+      bucket.count += 1
+      bucket.latencySum += row.latencyMs
+      if (row.isBillable) bucket.billable += 1
+      perDay.set(row.cstDate, bucket)
     }
-    if (createdHere > 0) {
+    for (const [date, bucket] of perDay) {
       const daily = await applyDailyDelta(db, {
         userId,
-        cstDate,
+        cstDate: date,
         endpoint,
-        count: createdHere,
-        billableCallCount: billableHere,
-        latencyMsSum: latencySum,
-        seededCount: createdHere,
+        count: bucket.count,
+        billableCallCount: bucket.billable,
+        latencyMsSum: bucket.latencySum,
+        seededCount: bucket.count,
         at: nowMs
       })
       if (!daily.ok) return { ok: false, created, skipped, reason: daily.reason }
