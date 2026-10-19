@@ -1,4 +1,5 @@
 /**
+ * ★ 2026-10-19 函数合并（21→8）：本模块自 `api/v1/usage/export.js` 迁入 `api/_lib/ops/`（下划线目录不注册为 Serverless Function）；对外 URL / 行为 / 日志路由名逐字不变，入口改为 `api/usage/index.js（op=export）` 按 `?op=` 分派。
  * `GET /api/v1/usage/export`（A14）—— 导出 CSV（UTF-8 BOM，表尾双口径汇总）。
  *
  * 响应：200 `{ ok:true, data:{ fileName, mimeType, content, rowCount, truncated, summary } }`
@@ -11,9 +12,9 @@
  * ★ `displayChannelBytes` 恒 0（后端暂无展示通道计量），注记行写明口径。
  *   400 INVALID_PARAM / 401 / 405（`Allow: GET`）/ 503
  */
-import { createRouteHandler } from '../../_lib/routeHandler.js'
-import { sessionAuthenticator } from '../../_lib/sessionRoute.js'
-import { exportUsageCsv, loadKeyLabels, parseUsageQuery } from '../../_lib/usage.js'
+import { createRouteHandler } from '../routeHandler.js'
+import { sessionAuthenticator } from '../sessionRoute.js'
+import { exportUsageCsv, loadKeyLabels, parseUsageQuery } from '../usage.js'
 
 export function createUsageExportHandler(options = {}) {
   return createRouteHandler('v1/usage/export', {

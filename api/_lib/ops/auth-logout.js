@@ -1,4 +1,5 @@
 /**
+ * ★ 2026-10-19 函数合并（21→8）：本模块自 `api/v1/auth/logout.js` 迁入 `api/_lib/ops/`（下划线目录不注册为 Serverless Function）；对外 URL / 行为 / 日志路由名逐字不变，入口改为 `api/auth/index.js（op=logout）` 按 `?op=` 分派。
  * POST /api/v1/auth/logout —— 结束会话（B2）。
  *
  * 响应：200 `{ ok:true }`（**无体也可调**）
@@ -10,8 +11,8 @@
  *   这样做的代价与收益：省掉一张会无限增长的撤销表 + 每请求一次 Redis 查；换来的是
  *   「登出」只在客户端生效（被盗令牌在有效期内仍可用）—— 已知并接受，TTL 7 天封顶。
  */
-import { authenticateSession } from '../../_lib/sessionAuth.js'
-import { createRouteHandler } from '../../_lib/routeHandler.js'
+import { authenticateSession } from '../sessionAuth.js'
+import { createRouteHandler } from '../routeHandler.js'
 
 export function createLogoutHandler(options = {}) {
   return createRouteHandler('v1/auth/logout', {

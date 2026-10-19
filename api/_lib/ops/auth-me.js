@@ -1,4 +1,5 @@
 /**
+ * ★ 2026-10-19 函数合并（21→8）：本模块自 `api/v1/me.js` 迁入 `api/_lib/ops/`（下划线目录不注册为 Serverless Function）；对外 URL / 行为 / 日志路由名逐字不变，入口改为 `api/auth/index.js（op=me）` 按 `?op=` 分派。
  * GET /api/v1/me —— 当前会话对应的账号（B2）。
  *
  * 响应：200 `{ ok:true, user:{ id, phone, email, role, status, createdAt, lastLoginAt } }`
@@ -8,8 +9,8 @@
  *
  * ★ 每次请求都回表复核（`sessionAuth.authenticateSession`）⇒ 停用即时生效。
  */
-import { authenticateSession } from '../_lib/sessionAuth.js'
-import { createRouteHandler } from '../_lib/routeHandler.js'
+import { authenticateSession } from '../sessionAuth.js'
+import { createRouteHandler } from '../routeHandler.js'
 
 export function createMeHandler(options = {}) {
   return createRouteHandler('v1/me', {

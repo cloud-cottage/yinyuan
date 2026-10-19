@@ -1,4 +1,5 @@
 /**
+ * ★ 2026-10-19 函数合并（21→8）：本模块自 `api/v1/usage/records.js` 迁入 `api/_lib/ops/`（下划线目录不注册为 Serverless Function）；对外 URL / 行为 / 日志路由名逐字不变，入口改为 `api/usage/index.js（op=records）` 按 `?op=` 分派。
  * `GET /api/v1/usage/records`（A13）—— 调用明细（按 `requestedAt` 倒序分页）。
  *
  * 查询参数：`limit`（缺省 50 / 上限 200，**超出截断不报错**）、`offset`（≥ 0），
@@ -10,10 +11,10 @@
  *   ★ 每行透出 `seeded`（示例数据可区分）
  *   400 INVALID_PARAM（`limit=abc` / `offset=-1`）/ 401 / 405（`Allow: GET`）/ 503
  */
-import { parsePaging } from '../../_lib/pagination.js'
-import { createRouteHandler } from '../../_lib/routeHandler.js'
-import { sessionAuthenticator } from '../../_lib/sessionRoute.js'
-import { listUsageRecords, parseUsageQuery } from '../../_lib/usage.js'
+import { parsePaging } from '../pagination.js'
+import { createRouteHandler } from '../routeHandler.js'
+import { sessionAuthenticator } from '../sessionRoute.js'
+import { listUsageRecords, parseUsageQuery } from '../usage.js'
 
 export function createUsageRecordsHandler(options = {}) {
   return createRouteHandler('v1/usage/records', {

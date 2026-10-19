@@ -1,4 +1,5 @@
 /**
+ * ★ 2026-10-19 函数合并（21→8）：本模块自 `api/v1/ledger.js` 迁入 `api/_lib/ops/`（下划线目录不注册为 Serverless Function）；对外 URL / 行为 / 日志路由名逐字不变，入口改为 `api/console/index.js（op=ledger）` 按 `?op=` 分派。
  * `GET /api/v1/ledger`（A24）—— 流水（`yinyuan_ledger_entries`）。
  *
  * 响应：200 `{ ok:true, data:{ items:[LedgerEntry], total, limit, offset, limitTruncated,
@@ -10,9 +11,9 @@
  * ★ 集合存在时也只读本用户；分页 `limit` 缺省 50 / 上限 200。
  *   400 INVALID_PARAM / 401 UNAUTHORIZED / 405 METHOD_NOT_ALLOWED（`Allow: GET`）/ 503 NOT_CONFIGURED
  */
-import { listLedgerEntries } from '../_lib/ledger.js'
-import { createRouteHandler } from '../_lib/routeHandler.js'
-import { sessionAuthenticator } from '../_lib/sessionRoute.js'
+import { listLedgerEntries } from '../ledger.js'
+import { createRouteHandler } from '../routeHandler.js'
+import { sessionAuthenticator } from '../sessionRoute.js'
 
 export function createLedgerHandler(options = {}) {
   return createRouteHandler('v1/ledger', {

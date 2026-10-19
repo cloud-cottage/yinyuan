@@ -18,7 +18,7 @@
  */
 import assert from 'node:assert/strict'
 import http from 'node:http'
-import { createSealsCatchAllHandler, projectSeal, sealShapeOf } from '../api/v1/seals.js'
+import { createSealsCatchAllHandler, projectSeal, sealShapeOf } from '../api/_lib/ops/console-seals.js'
 
 let passCount = 0
 let failCount = 0

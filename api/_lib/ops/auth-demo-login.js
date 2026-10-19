@@ -1,4 +1,5 @@
 /**
+ * ★ 2026-10-19 函数合并（21→8）：本模块自 `api/v1/auth/demo-login.js` 迁入 `api/_lib/ops/`（下划线目录不注册为 Serverless Function）；对外 URL / 行为 / 日志路由名逐字不变，入口改为 `api/auth/index.js（op=demo-login）` 按 `?op=` 分派。
  * POST /api/v1/auth/demo-login —— 演示账号**一键登录**（服务端代签；2026-10-19 Zang 裁定二）。
  *
  * ★ 为什么要有这个端点：`/config` 公开后仍**不得**下发 `demo.password`（口令入客户端即泄露），
@@ -25,11 +26,11 @@ import {
   SESSION_DEFAULT_TTL_SECONDS,
   failureOf,
   issueSession
-} from '../../_lib/accountContract.js'
-import { demoAccountEmail } from '../../_lib/demoAccount.js'
-import { AUTH_THROTTLE } from '../../_lib/ratelimit.js'
-import { clientIpOf, createRouteHandler } from '../../_lib/routeHandler.js'
-import { findByEmail, toPublicUser, updateLastLogin } from '../../_lib/users.js'
+} from '../accountContract.js'
+import { demoAccountEmail } from '../demoAccount.js'
+import { AUTH_THROTTLE } from '../ratelimit.js'
+import { clientIpOf, createRouteHandler } from '../routeHandler.js'
+import { findByEmail, toPublicUser, updateLastLogin } from '../users.js'
 
 /** 对外统一失败面（不含「账号不存在 / 已停用」的区分，不给探测面）。 */
 const DEMO_LOGIN_FAILED = {

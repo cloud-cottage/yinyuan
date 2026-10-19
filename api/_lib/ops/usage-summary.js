@@ -1,4 +1,5 @@
 /**
+ * ★ 2026-10-19 函数合并（21→8）：本模块自 `api/v1/usage/summary.js` 迁入 `api/_lib/ops/`（下划线目录不注册为 Serverless Function）；对外 URL / 行为 / 日志路由名逐字不变，入口改为 `api/usage/index.js（op=summary）` 按 `?op=` 分派。
  * `GET /api/v1/usage/summary`（A10）—— 用量汇总（**双口径**）。
  *
  * 查询参数：`range=1d|7d|30d|90d|all`（缺省 30d，CST 自然日含当日）、
@@ -13,10 +14,10 @@
  *   ★ `seededCalls` 让示例数据可区分，不静默冒充真实调用
  *   400 INVALID_PARAM / 401 UNAUTHORIZED / 405 METHOD_NOT_ALLOWED（`Allow: GET`）/ 503 NOT_CONFIGURED
  */
-import { getAccountProjection } from '../../_lib/account.js'
-import { createRouteHandler } from '../../_lib/routeHandler.js'
-import { sessionAuthenticator } from '../../_lib/sessionRoute.js'
-import { getUsageSummary, parseUsageQuery } from '../../_lib/usage.js'
+import { getAccountProjection } from '../account.js'
+import { createRouteHandler } from '../routeHandler.js'
+import { sessionAuthenticator } from '../sessionRoute.js'
+import { getUsageSummary, parseUsageQuery } from '../usage.js'
 
 export function createUsageSummaryHandler(options = {}) {
   return createRouteHandler('v1/usage/summary', {

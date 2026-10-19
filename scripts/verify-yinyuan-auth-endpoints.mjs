@@ -27,15 +27,20 @@ import { countByField } from '../api/_lib/dataset.js'
 import { DYNASTY_CONTRACT } from '../api/_lib/dynasty-contract.js'
 import { createGetHandler } from '../api/_lib/handler.js'
 import { resetCache } from '../api/_lib/instance-cache.js'
-import { createLoginHandler } from '../api/v1/auth/login.js'
-import { createLogoutHandler } from '../api/v1/auth/logout.js'
-import { createRegisterHandler } from '../api/v1/auth/register.js'
+// ★ 函数合并（2026-10-19，21→8）：auth×4 + me / usage×5 / console×5 的实现迁入
+//   `api/_lib/ops/`（下划线目录不注册为函数），入口改为 `api/{auth,usage,console}/index.js`
+//   按 `?op=` 分派（vercel.json rewrite 折段，对外 URL 逐字不变）。
+//   本自检仍逐 op 直挂工厂（调用链与逐文件时代同构）；rewrite→分派的全链路由
+//   `vercel dev` 探针覆盖。
+import { createLoginHandler } from '../api/_lib/ops/auth-login.js'
+import { createLogoutHandler } from '../api/_lib/ops/auth-logout.js'
+import { createRegisterHandler } from '../api/_lib/ops/auth-register.js'
 // ★ 路由形态修复（2026-10-18）：三个密钥端点收进 `api/v1/keys/index.js` 单入口分派。
 //   旧路径 `api/v1/keys/[kid].js`、`api/v1/keys/[kid]/rotate.js`（动态段）与
 //   `api/v1/keys/[...path].js`（方括号组）在线上**都没被注册成路由**（实测均落 /api/v1/bogus 同形 404）
 //   ⇒ 动态路径改由 `vercel.json` rewrite 折成 `?kid=` / `?kid=&action=rotate`（对外 URL 不变）。
 import { createKeysCatchAllHandler } from '../api/v1/keys/index.js'
-import { createMeHandler } from '../api/v1/me.js'
+import { createMeHandler } from '../api/_lib/ops/auth-me.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const REPO = path.resolve(HERE, '..')

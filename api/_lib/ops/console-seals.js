@@ -1,4 +1,5 @@
 /**
+ * ★ 2026-10-19 函数合并（21→8）：本模块自 `api/v1/seals.js` 迁入 `api/_lib/ops/`（下划线目录不注册为 Serverless Function）；对外 URL / 行为 / 日志路由名逐字不变，入口改为 `api/console/index.js（op=seals）` 按 `?op=` 分派。
  * `/api/v1/seals` —— A25（列表）＋ A26（单条）**公开只读**端点，营销面用，**无需会话**。
  *
  * ★ 数据源白名单（硬约束）：只读正式集合 `xiai_seals`（79 行）＋ `xiai_faces`（79 行）；
@@ -7,7 +8,8 @@
  *
  * ★ 路由形态（与 `api/v1/keys` 同一套结论）：本仓的动态段文件（方括号文件 / `:path*`）
  *   在 Vercel **不注册**，故 `/api/v1/seals/{id}` 由平台层 rewrite 折成 query：
- *     vercel.json：`/api/v1/seals/:id` ⇒ `/api/v1/seals?id=:id`（位于末条 `/api/(.*)` 兜底之前）
+ *     vercel.json：`/api/v1/seals/:id` ⇒ `/api/console?op=seals&id=:id`（2026-10-19 函数合并后
+ *     指向 `api/console/index.js`；位于末条 `/api/(.*)` 兜底之前，与 keys 两条同批）
  *   本文件是**单入口分派**：`?id=` 优先 ⇒ 单条；否则（`req.url` 0 段）⇒ 列表。
  *   同时兼容「URL 里带段」的直调（本地自检 / 不经 rewrite 的直调），两条通道落到同一 set of handlers。
  *
@@ -30,10 +32,10 @@
  *   `id` 与 `sealId` **同值**：`authors` / `inscriptions` 已用 `id` 作对外主键，本端点保留契约名 `sealId`
  *   的同时给出 `id`，供跨端点同一口径取用（非另造字段，见交付「待入规范条目」）。
  */
-import { countDocs, fetchPage, fetchWhereIn, readId, readNumber, readString } from '../_lib/dataset.js'
-import { getSearchParams, parsePaging } from '../_lib/pagination.js'
-import { failWith } from '../_lib/respond.js'
-import { createRouteHandler } from '../_lib/routeHandler.js'
+import { countDocs, fetchPage, fetchWhereIn, readId, readNumber, readString } from '../dataset.js'
+import { getSearchParams, parsePaging } from '../pagination.js'
+import { failWith } from '../respond.js'
+import { createRouteHandler } from '../routeHandler.js'
 
 /** 影像类型（spec §3.9 `ImageAsset.kind`）。 */
 const ASSET_KIND = Object.freeze({ FACE: 'FACE', EDGE: 'EDGE', IMPRESSION: 'IMPRESSION' })

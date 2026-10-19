@@ -1,4 +1,5 @@
 /**
+ * ★ 2026-10-19 函数合并（21→8）：本模块自 `api/v1/config.js` 迁入 `api/_lib/ops/`（下划线目录不注册为 Serverless Function）；对外 URL / 行为 / 日志路由名逐字不变，入口改为 `api/console/index.js（op=config）` 按 `?op=` 分派。
  * `GET /api/v1/config`（A1）—— 站点级配置投影（**纯静态，不查库**）。
  *
  * ★ **公开只读面**（Zang 2026-10-19 裁定一）：**不要求会话**。
@@ -18,8 +19,8 @@
  * ★ 不碰账号表：`dbAccess: false` 让路由工厂**跳过云库句柄解析**——
  *   公开配置面在「云库未配置」的环境（本地 / 预览）也必须能回 200，而不是 503。
  */
-import { projectAppConfig } from '../_lib/appConfig.js'
-import { createRouteHandler } from '../_lib/routeHandler.js'
+import { projectAppConfig } from '../appConfig.js'
+import { createRouteHandler } from '../routeHandler.js'
 
 export function createConfigHandler(options = {}) {
   return createRouteHandler('v1/config', {

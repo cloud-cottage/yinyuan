@@ -1,4 +1,5 @@
 /**
+ * ★ 2026-10-19 函数合并（21→8）：本模块自 `api/v1/account.js` 迁入 `api/_lib/ops/`（下划线目录不注册为 Serverless Function）；对外 URL / 行为 / 日志路由名逐字不变，入口改为 `api/console/index.js（op=account）` 按 `?op=` 分派。
  * `GET /api/v1/account`（A15）—— 额度账户（只读 `yinyuan_accounts` 当前用户行）。
  *
  * 响应：200 `{ ok:true, data:{ userId, planId, planName, monthKey, quotaTotalCalls,
@@ -9,9 +10,9 @@
  *   401 UNAUTHORIZED / 405 METHOD_NOT_ALLOWED（`Allow: GET`）/ 503 NOT_CONFIGURED
  *   （存储故障 ⇒ 500 INTERNAL_ERROR，绝不把故障说成「零额度」）
  */
-import { getAccountProjection } from '../_lib/account.js'
-import { createRouteHandler } from '../_lib/routeHandler.js'
-import { sessionAuthenticator } from '../_lib/sessionRoute.js'
+import { getAccountProjection } from '../account.js'
+import { createRouteHandler } from '../routeHandler.js'
+import { sessionAuthenticator } from '../sessionRoute.js'
 
 export function createAccountHandler(options = {}) {
   return createRouteHandler('v1/account', {

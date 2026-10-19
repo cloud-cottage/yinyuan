@@ -1,4 +1,5 @@
 /**
+ * ★ 2026-10-19 函数合并（21→8）：本模块自 `api/v1/auth/register.js` 迁入 `api/_lib/ops/`（下划线目录不注册为 Serverless Function）；对外 URL / 行为 / 日志路由名逐字不变，入口改为 `api/auth/index.js（op=register）` 按 `?op=` 分派。
  * POST /api/v1/auth/register —— 客户自助注册（B2）。
  *
  * 体（`application/json`，≤8 KiB）：`{ phone?, email?, password }`（**手机号优先**，二选一必给）
@@ -21,11 +22,11 @@ import {
   SESSION_DEFAULT_TTL_SECONDS,
   failureOf,
   issueSession
-} from '../../_lib/accountContract.js'
-import { checkPasswordPolicy } from '../../_lib/passwordHash.js'
-import { AUTH_THROTTLE } from '../../_lib/ratelimit.js'
-import { clientIpOf, createRouteHandler } from '../../_lib/routeHandler.js'
-import { create as createUser } from '../../_lib/users.js'
+} from '../accountContract.js'
+import { checkPasswordPolicy } from '../passwordHash.js'
+import { AUTH_THROTTLE } from '../ratelimit.js'
+import { clientIpOf, createRouteHandler } from '../routeHandler.js'
+import { create as createUser } from '../users.js'
 
 /** 输入形状校验（类型错了是调用方错误 ⇒ 400；不 trim 口令）。 */
 function readInput(body) {

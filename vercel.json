@@ -20,7 +20,23 @@
     { "source": "/((?!assets/|api/).*)", "destination": "/index.html" },
     { "source": "/api/v1/keys/:kid/rotate", "destination": "/api/v1/keys?kid=:kid&action=rotate" },
     { "source": "/api/v1/keys/:kid", "destination": "/api/v1/keys?kid=:kid" },
+    { "source": "/api/v1/seals", "destination": "/api/console?op=seals" },
+    { "source": "/api/v1/seals/:id", "destination": "/api/console?op=seals&id=:id" },
     { "source": "/api/v1/seals/:id", "destination": "/api/v1/seals?id=:id" },
+    { "source": "/api/v1/auth/login", "destination": "/api/auth?op=login" },
+    { "source": "/api/v1/auth/register", "destination": "/api/auth?op=register" },
+    { "source": "/api/v1/auth/demo-login", "destination": "/api/auth?op=demo-login" },
+    { "source": "/api/v1/auth/logout", "destination": "/api/auth?op=logout" },
+    { "source": "/api/v1/me", "destination": "/api/auth?op=me" },
+    { "source": "/api/v1/usage/summary", "destination": "/api/usage?op=summary" },
+    { "source": "/api/v1/usage/breakdown", "destination": "/api/usage?op=breakdown" },
+    { "source": "/api/v1/usage/trend", "destination": "/api/usage?op=trend" },
+    { "source": "/api/v1/usage/records", "destination": "/api/usage?op=records" },
+    { "source": "/api/v1/usage/export", "destination": "/api/usage?op=export" },
+    { "source": "/api/v1/config", "destination": "/api/console?op=config" },
+    { "source": "/api/v1/plans", "destination": "/api/console?op=plans" },
+    { "source": "/api/v1/account", "destination": "/api/console?op=account" },
+    { "source": "/api/v1/ledger", "destination": "/api/console?op=ledger" },
     { "source": "/api/(.*)", "destination": "/api" }
   ]
 }

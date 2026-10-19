@@ -27,9 +27,9 @@ import { SESSION_DEFAULT_TTL_SECONDS } from '../api/_lib/accountContract.js'
 import { AUTH_THROTTLE } from '../api/_lib/ratelimit.js'
 import { DEMO_ACCOUNT_EMAIL_DEFAULT } from '../api/_lib/demoAccount.js'
 import { COLLECTION as USERS_COLLECTION } from '../api/_lib/users.js'
-import { createConfigHandler } from '../api/v1/config.js'
-import { createPlansHandler } from '../api/v1/plans.js'
-import { createDemoLoginHandler } from '../api/v1/auth/demo-login.js'
+import { createConfigHandler } from '../api/_lib/ops/console-config.js'
+import { createPlansHandler } from '../api/_lib/ops/console-plans.js'
+import { createDemoLoginHandler } from '../api/_lib/ops/auth-demo-login.js'
 import notFoundHandler from '../api/index.js'
 
 /* ── 断言小工具 ─────────────────────────────────────────────────── */

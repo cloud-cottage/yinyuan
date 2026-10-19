@@ -1,4 +1,5 @@
 /**
+ * ★ 2026-10-19 函数合并（21→8）：本模块自 `api/v1/usage/trend.js` 迁入 `api/_lib/ops/`（下划线目录不注册为 Serverless Function）；对外 URL / 行为 / 日志路由名逐字不变，入口改为 `api/usage/index.js（op=trend）` 按 `?op=` 分派。
  * `GET /api/v1/usage/trend?bucket=day|month`（A12）—— 按 CST 日 / 月序列。
  *
  * 响应：200 `{ ok:true, data:{ bucket:'day'|'month', series:[{bucket, calls, billableCalls,
@@ -9,9 +10,9 @@
  *   ★ 无数据 ⇒ 全部桶为 0（不 404）
  *   400 INVALID_PARAM / 401 UNAUTHORIZED / 405 METHOD_NOT_ALLOWED（`Allow: GET`）/ 503 NOT_CONFIGURED
  */
-import { createRouteHandler } from '../../_lib/routeHandler.js'
-import { sessionAuthenticator } from '../../_lib/sessionRoute.js'
-import { getUsageTrend, parseBucket, parseUsageQuery } from '../../_lib/usage.js'
+import { createRouteHandler } from '../routeHandler.js'
+import { sessionAuthenticator } from '../sessionRoute.js'
+import { getUsageTrend, parseBucket, parseUsageQuery } from '../usage.js'
 
 export function createUsageTrendHandler(options = {}) {
   return createRouteHandler('v1/usage/trend', {

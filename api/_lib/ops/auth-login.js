@@ -1,4 +1,5 @@
 /**
+ * ★ 2026-10-19 函数合并（21→8）：本模块自 `api/v1/auth/login.js` 迁入 `api/_lib/ops/`（下划线目录不注册为 Serverless Function）；对外 URL / 行为 / 日志路由名逐字不变，入口改为 `api/auth/index.js（op=login）` 按 `?op=` 分派。
  * POST /api/v1/auth/login —— 客户登录（B2）。
  *
  * 体（`application/json`，≤8 KiB）：`{ phone?, email?, password }`（**手机号优先**，二选一必给）
@@ -20,11 +21,11 @@ import {
   SESSION_DEFAULT_TTL_SECONDS,
   failureOf,
   issueSession
-} from '../../_lib/accountContract.js'
-import { hashPassword, verifyPassword } from '../../_lib/passwordHash.js'
-import { AUTH_THROTTLE } from '../../_lib/ratelimit.js'
-import { clientIpOf, createRouteHandler } from '../../_lib/routeHandler.js'
-import { findByEmail, findByPhone, normalizeEmail, normalizePhone, updateLastLogin } from '../../_lib/users.js'
+} from '../accountContract.js'
+import { hashPassword, verifyPassword } from '../passwordHash.js'
+import { AUTH_THROTTLE } from '../ratelimit.js'
+import { clientIpOf, createRouteHandler } from '../routeHandler.js'
+import { findByEmail, findByPhone, normalizeEmail, normalizePhone, updateLastLogin } from '../users.js'
 
 const LOGIN_FAILED = {
   ok: false,
