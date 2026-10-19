@@ -22,6 +22,21 @@ const EXCEPTIONS = [
     line: /demoEnvQuota/,
     reason: '演示环境额度（spec §11 待决 18：30 天 + 2,000 次），非付费套餐包量；不作为任何商品价格消费',
   },
+  {
+    file: 'api/_lib/usage.js',
+    line: /SUMMARY_BUDGET_MS/,
+    reason: '查询扫描时间预算（ms），非商品价格/包量，不出现在对客文案',
+  },
+  {
+    file: 'tests/console-endpoints.test.mjs',
+    line: /ttlSeconds:\s*3600/,
+    reason: '测试夹具：会话 TTL 取 1 小时仅为便于断言 exp，非商品价格/包量，不参与对客渲染',
+  },
+  {
+    file: 'qa-recheck/probe-usage-real.mjs',
+    line: /budgetMs:\s*10000/,
+    reason: '一次性只读对拍探针（gitignored），非产品代码：扫描时间预算（ms），非价格/包量',
+  },
 ]
 
 /** spec §4.3 明列的字面量 */
