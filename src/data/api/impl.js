@@ -17,8 +17,10 @@
  *     服务端下发的 `pricingTable`，复用 `@/config/pricing.js` 同一套算法在本地计算；
  *     输入缺失 ⇒ `PRICING_INCOMPLETE`，不回落本地配置、不编数）；
  *   · **A24 `listLedgerEntries`** —— `src/data/api/ledger.js`（`collectionReady:false` ⇒ 如实空态）；
+ *   · **A25 `listSeals` / A26 `getSeal`** —— `src/data/api/seals.js`（公开只读面 `authed:false`；
+ *     `{page,pageSize}` → `offset/limit`，响应 `{items,total,limit,offset}` 回映射分页信封）；
  *   · **A27 `getDisplaySlices`** —— 接 xiai 侧 TileSplicer 只读 API。
- * 其余方法（A19–A23 / A25–A26 / A28–A31）仍为「未接入」的明确失败 —— 本文件**绝不返回伪造数据**。
+ * 其余方法（A19–A23 / A28–A31）仍为「未接入」的明确失败 —— 本文件**绝不返回伪造数据**。
  *
  * 边界（R-103 跨工程单向边界）：
  *   ① 只经 **HTTP 契约**消费 xiai（`/api/tilesplicer/v1`，经 yinsuo 自己的 Vite 代理转 127.0.0.1:5163）；
@@ -44,6 +46,7 @@ import * as plansAdapter from './plans.js'
 import * as accountAdapter from './account.js'
 import * as usageAdapter from './usage.js'
 import * as ledgerAdapter from './ledger.js'
+import * as sealsAdapter from './seals.js'
 
 /** 统一未接入失败（页面应展示错误态 + 「演示环境：该功能未接入」）。 */
 function notConnected(method, endpoint) {
@@ -152,6 +155,16 @@ apiImpl.computeScenario = (input) => plansAdapter.computeScenario(input)
 apiImpl.listLedgerEntries = (filter, page) => ledgerAdapter.listLedgerEntries(filter, page)
 
 /* ==========================================================================
+ * A25 / A26 —— 玺印检索与详情（公开只读面；服务端已上线）
+ *
+ * 只做**转发**：分页换算（`{page,pageSize}` → `offset/limit`）、信封拆解、字段白名单
+ * 全部落在 `seals.js`（页面筛选参数服务端不支持 ⇒ 该层显式丢弃，不做半量过滤）。
+ * 页面可见的方法签名与 mock 实现完全一致（`@/data` 出口零改动）。
+ * ========================================================================== */
+apiImpl.listSeals = (filter, page) => sealsAdapter.listSeals(filter, page)
+apiImpl.getSeal = (sealId) => sealsAdapter.getSeal(sealId)
+
+/* ==========================================================================
  * A27 —— 展示切片（R-101 二次封装：消费 xiai TileSplicer API）
  *
  * 契约（xiai 侧，冻结）：
@@ -176,8 +189,10 @@ const TILESPLICER_PLAN_PATH = `${TILESPLICER_API_PREFIX}/plan`
  *       - 印面 FACE ：`1200 × 1200`（方形印面）
  *       - 实拍 PHOTO：`1600 × 1200`（4:3 实拍）
  *   · 缺口（登记，不在本单代裁）：真实尺寸应由 yinsuo **自身资源服务**（A25/A26 的 ImageAsset
- *     `width`/`height`）下发；当前 A25/A26 在 api 模式下未接入 ⇒ 本层以常量登记演示尺寸。
- *     接入后改法：把 A26 的 `assets[].width/height` 透传进 `options.width/height` 即可，其余不动。
+ *     `width`/`height`）下发。A25/A26 现已接线（服务端 `assets[].width/height` 已下发），但
+ *     **尺寸透传仍未接线**（`SlicePreview` 未把影像尺寸传进 `options.width/height`）⇒ 本层
+ *     仍以常量登记缺省演示尺寸；改法不变：把 A26 的 `assets[].width/height` 透传进
+ *     `options.width/height` 即可，其余不动。
  */
 const YS_SOURCE_DIMENSIONS = Object.freeze({
   FACE: Object.freeze({ width: 1200, height: 1200 }),

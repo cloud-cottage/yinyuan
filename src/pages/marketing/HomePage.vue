@@ -249,10 +249,27 @@ const SAMPLE_DEFS = [
   { label: '闲章', text: '山水知己', sealStyle: 'ZHU_WEN', meta: '清 · 闲章｜朱文，红字透明底' },
 ]
 const sealList = useAsync(() => listSeals({}, { page: 1, pageSize: SAMPLE_DEFS.length }), { immediate: true })
-const samples = computed(() => SAMPLE_DEFS.map((def, i) => ({
-  ...def,
-  assetId: sealList.data.value?.items?.[i]?.assets?.[0]?.assetId || '',
-})))
+/**
+ * api 模式：卡面字段取自 seals 接口（A25 真实数据 —— 印名 / 释文 / 朝代 / 类型）。
+ * 服务端**空值如实**（79 方里 `sealName` 仅 2 方、`dynasty` 23 方非空），空字段**逐字段回落**
+ * 演示缺省（SAMPLE_DEFS）—— 不出空白卡、不编造、不拿 mock 兜底整个列表。
+ * mock 模式零改动（`RESOLVED_DATA_SOURCE !== 'api'` 时原样返回，行为逐字一致）。
+ */
+function sealMetaText(item) {
+  const parts = ['dynasty', 'sealType'].map((key) => (typeof item?.[key] === 'string' ? item[key].trim() : ''))
+  return parts.filter(Boolean).join(' · ')
+}
+const samples = computed(() => SAMPLE_DEFS.map((def, i) => {
+  const item = sealList.data.value?.items?.[i] || null
+  const sample = { ...def, assetId: item?.assets?.[0]?.assetId || '' }
+  if (RESOLVED_DATA_SOURCE !== 'api') return sample
+  return {
+    ...sample,
+    label: (typeof item?.sealName === 'string' && item.sealName.trim()) || def.label,
+    text: (typeof item?.transcription === 'string' && item.transcription.trim()) || def.text,
+    meta: sealMetaText(item) || def.meta,
+  }
+}))
 
 /**
  * 样例区**如实空态**（仅 api 模式）：列表读取失败或为空时不再渲染四张卡，改显一句对客说明。

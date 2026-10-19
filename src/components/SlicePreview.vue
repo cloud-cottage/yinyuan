@@ -19,7 +19,7 @@
       @dragstart.prevent="onSaveBlocked"
       @click="onSaveBlocked"
     >
-      <span v-if="!realMode" class="ph-badge">图占位</span>
+      <span v-if="!realMode || degraded" class="ph-badge">图占位</span>
 
       <!--
         真源影像三面（**塊面**）分支：每塊用**自己的**落位（`placements`，真源逐字）絕對定位，
@@ -55,6 +55,16 @@
           aria-hidden="true"
         ></span>
       </template>
+      <template v-else-if="degraded">
+        <!--
+          api 模式切片不可达 ⇒ **如实降级**为纯 CSS 图占位（`.seal` 占位 ＋ `.ph-badge`）：
+          零外链、零真实请求、不白屏、不抛未捕获异常、不显失败码（那是取证面，不进营销页）；
+          mock 模式 `degraded` 恒为 false，不会进本分支（行为逐字不变）。
+        -->
+        <div class="slice-degraded">
+          <SealPlaceholder :text="text" :style="sealStyle" :badge="false" />
+        </div>
+      </template>
       <div v-else class="slice-busy note">
         <!-- 真源影像三面：不可達 / 無摘要 / 無塊 ⇒ **如實降級**（不偽造、不白屏） -->
         <template v-if="realMode">
@@ -76,6 +86,7 @@
           展示切片 {{ realBlocks.length }} 块 · {{ realGridText }} · 几何真源
           <code class="mono">{{ realVersionText }}</code>（{{ realKindText }}）
         </template>
+        <template v-else-if="degraded">{{ degradedNote }}</template>
         <template v-else-if="currentError">切片读取失败</template>
         <template v-else-if="slicesLoading">切片载入中…</template>
         <template v-else>真源未下发切片块</template>
@@ -84,6 +95,7 @@
         展示切片 {{ slices.slices.length }} 块 · {{ meta.cols }}×{{ meta.rows }} 网格（{{ meta.cuts }} 刀 ·
         刀向 {{ meta.directions.join(' → ') }}）· 签名 TTL {{ slices.sigTtlSeconds }}s
       </template>
+      <template v-else-if="degraded">{{ degradedNote }}</template>
       <template v-else-if="error">切片读取失败</template>
       <template v-else-if="!assetId">—</template>
       <template v-else-if="slices">切片元数据不含几何</template>
@@ -126,7 +138,7 @@
       缓存键 <code class="mono">{{ slices.sliceContentCacheKey }}</code>
     </p>
 
-    <template v-if="currentError">
+    <template v-if="currentError && !degraded">
       <p class="slice-meta note">
         失败码 <code class="mono">{{ currentError.code || '—' }}</code>（reason
         <code class="mono">{{ currentError.reason || '—' }}</code>）· 已结构化失败，<b>不回退演示资料</b>
@@ -198,7 +210,7 @@
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import SealPlaceholder from '@/components/SealPlaceholder.vue'
-import { getDisplaySlices, getImageSlices, getImageThumb, clientKindOf, releaseImageUrls } from '@/data'
+import { getDisplaySlices, getImageSlices, getImageThumb, clientKindOf, releaseImageUrls, RESOLVED_DATA_SOURCE } from '@/data'
 import { useAsync } from '@/composables/useAsync.js'
 import { toastNotConnected } from '@/composables/useToast.js'
 
@@ -323,9 +335,21 @@ const imageError = computed(() => slicesState.error.value)
 const currentError = computed(() => (realMode.value ? imageError.value : error.value))
 const slicesLoading = computed(() => (realMode.value ? slicesState.loading.value : state.loading.value))
 
-/** 供取證 / 無障礙讀取的態讀數（**穩定字面值**：loading | error | ready | empty）。 */
+/**
+ * api 模式切片不可达 ⇒ **如實降級**為純 CSS 圖佔位（stage 渲染 `.seal` 佔位 ＋ `.ph-badge`，
+ * 零外鏈、零真實請求、不白屏、不拋未捕獲異常、不上失敗碼）。判據 ＝「api 構建 ＋ 非載入 ＋
+ * 結構化失敗」：生產 / 本地缺切片代理時，A27 與真源三面的請求失敗都落這裡；切片可達
+ * （本地代理在）⇒ 不降級、照常出片。**mock 模式恆為 false**（失敗態與既有逐字一致）。
+ */
+const IS_API_SOURCE = RESOLVED_DATA_SOURCE === 'api'
+const degraded = computed(() => IS_API_SOURCE && !slicesLoading.value && Boolean(currentError.value))
+/** 降級態的一行對客說明（不上失敗碼 / 請求 URL —— 取證讀數保留在 `data-slice-*` 屬性裡）。 */
+const degradedNote = '样例切片暂不可用，已显示图占位（非真实影像）；页面其余内容不受影响。'
+
+/** 供取證 / 無障礙讀取的態讀數（**穩定字面值**：loading | error | ready | empty | placeholder）。 */
 const stageState = computed(() => {
   if (slicesLoading.value) return 'loading'
+  if (degraded.value) return 'placeholder'
   if (currentError.value) return 'error'
   if (realMode.value) return realBlocks.value.length ? 'ready' : 'empty'
   return geometryReady.value ? 'ready' : 'empty'
@@ -518,6 +542,7 @@ const seams = computed(() => {
 })
 
 const stageClass = computed(() => {
+  if (degraded.value) return 'is-unknown is-degraded'
   if (realMode.value) return realBlocks.value.length ? 'is-real' : 'is-unknown'
   return geometryReady.value ? 'is-gapped' : 'is-unknown'
 })
@@ -584,6 +609,10 @@ function onSaveBlocked() {
 .slice-busy {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   border: var(--border-dashed); border-radius: var(--radius-sm); text-align: center; padding: 0 var(--sp-3);
+}
+/* api 模式切片不可達的降級圖佔位：佔位組件（.seal）居中鋪滿舞台；樣式與既有圖佔位同語言 */
+.slice-degraded {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
 }
 .slice-meta { margin: var(--sp-4) 0 0; }
 .sig-toggle {
