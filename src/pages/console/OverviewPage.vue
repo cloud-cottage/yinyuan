@@ -50,7 +50,8 @@
             </template>
             <template v-else-if="quota.state.value === 'loading'">今日原图额度读取中…</template>
             <template v-else>
-              今日原图额度暂不可读（额度为账号维度数据，需登录后查询）
+              <template v-if="user">暂无额度数据</template>
+              <template v-else>今日原图额度暂不可读（额度为账号维度数据，需登录后查询）</template>
               <button class="btn ghost sm" type="button" @click="quota.run()">重试</button>
             </template>
           </div>
@@ -335,10 +336,13 @@ import {
 import { formatBytesParts, formatCalls, formatCents } from '@/config/pricing.js'
 import { ledgerTypeLabel } from '@/config/labels.js'
 import { useAsync } from '@/composables/useAsync.js'
+import { useAuth } from '@/composables/useAuth.js'
 import { toast } from '@/composables/useToast.js'
 
 const route = useRoute()
 const router = useRouter()
+/** 会话用户：原图额度卡片的空态措辞按它分叉（已登录无数据 ⇒ 「暂无额度数据」，不再说「需登录」）。 */
+const { user } = useAuth()
 
 /** 一次性开通提示：仅由注册成功跳转带来的标记触发。 */
 const justOpened = ref(route.query.opened === '1')

@@ -22,12 +22,20 @@ export const DEMO_PUBLIC_FIELDS = Object.freeze([
   'signInEnabled'
 ])
 
+/**
+ * api 模式的 `demo.label` 覆写：共享配置里的原文「演示账号（演示环境：登录不校验真实凭证）」
+ * 只对 **mock** 成立；api 模式的演示登录由服务端代签会话（`POST /auth/demo-login`），
+ * 沿用原说法即与实现相反 ⇒ 对外投影改写为与 api 模式不矛盾的表述（口令/验证码仍不外发）。
+ */
+const DEMO_LABEL_API = '演示账号（预置账号，由服务端校验并代签会话）'
+
 /** 浅拷贝并只保留白名单字段；缺失字段不补默认值（缺就是缺）。 */
 function projectDemo(demo) {
   const out = {}
   for (const name of DEMO_PUBLIC_FIELDS) {
     if (demo && demo[name] !== undefined) out[name] = demo[name]
   }
+  if (out.label !== undefined) out.label = DEMO_LABEL_API
   return out
 }
 

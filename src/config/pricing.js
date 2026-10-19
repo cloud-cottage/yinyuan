@@ -367,6 +367,115 @@ export function getPricingTable() {
 }
 
 /**
+ * 算例输入源错误（结构化：`code` + 缺失清单）。
+ * api 模式输入缺项时如实报错（`PRICING_INCOMPLETE` / `INVALID_ARGUMENT`），**不编数**。
+ */
+function scenarioSourceError(code, message, extra = {}) {
+  const error = new Error(message)
+  error.name = 'ScenarioSourceError'
+  error.code = code
+  error.reason = code
+  Object.assign(error, extra)
+  return error
+}
+
+/** 校验一组字段全是有限数（缺一记入 `missing`；`''` / null / 非数都算缺）。 */
+function collectMissingNumbers(obj, fields, label, missing) {
+  for (const field of fields) {
+    const value = obj ? obj[field] : undefined
+    if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) {
+      missing.push(`${label}.${field}`)
+    }
+  }
+}
+
+/**
+ * 算例输入源解析 —— **单一算法的唯一取数口**（不另写第二套算法）。
+ *
+ *  · 不传 `source`（mock / 本地配置）⇒ 与历史行为逐字一致：取 `getPlans()` / `PRICING.scenario`
+ *    / `getOriginalQuotaPolicy()`；
+ *  · 传 `source`（api 模式，服务端 `GET /api/v1/plans` 下发的 `pricingTable`）⇒ 金额 / 包量
+ *    / 单价 / 免费额度**逐字取自服务端数据**；任何必需字段缺失 ⇒ 抛 `PRICING_INCOMPLETE`，
+ *    **绝不回落到本地配置**（回落会把本地演示价冒充成服务端结果）。
+ */
+function resolveScenarioSource(source) {
+  if (!source) {
+    return {
+      plans: getPlans(),
+      scenario: PRICING.scenario,
+      quota: getOriginalQuotaPolicy(),
+      currency: PRICING.currency,
+      isDemoPrice: PRICING.isDemoPrice,
+      setupFee: PRICING.setupFee,
+      disclaimer: PRICING.disclaimer,
+      strictPlan: false,
+    }
+  }
+
+  const missing = []
+  const plans = Array.isArray(source.plans) ? source.plans.filter((plan) => plan && typeof plan === 'object') : []
+  if (plans.length === 0) missing.push('plans')
+  plans.forEach((plan, index) => {
+    if (typeof plan.planId !== 'string' || plan.planId === '') missing.push(`plans[${index}].planId`)
+    if (typeof plan.name !== 'string' || plan.name === '') missing.push(`plans[${index}].name`)
+    collectMissingNumbers(
+      plan,
+      ['annualFeeCents', 'monthlyQuotaCalls', 'overageUnitPriceCents'],
+      `plans[${index}]`,
+      missing,
+    )
+  })
+  const scenario = source.scenario && typeof source.scenario === 'object' ? source.scenario : null
+  if (!scenario) missing.push('scenario')
+  collectMissingNumbers(
+    scenario,
+    ['sessionsPerMonth', 'sealsPerSession', 'originalImagesPerMonth', 'daysPerMonth'],
+    'scenario',
+    missing,
+  )
+  const quota = source.quota && typeof source.quota === 'object' ? source.quota : null
+  if (!quota) missing.push('quota')
+  collectMissingNumbers(quota, ['freePerDay', 'unitPriceCents'], 'quota', missing)
+  if (typeof source.currency !== 'string' || source.currency === '') missing.push('currency')
+  if (typeof source.isDemoPrice !== 'boolean') missing.push('isDemoPrice')
+  const setupFee = source.setupFee && typeof source.setupFee === 'object' ? source.setupFee : null
+  if (!setupFee) missing.push('setupFee')
+  if (typeof source.disclaimer !== 'string' || source.disclaimer === '') missing.push('disclaimer')
+
+  if (missing.length > 0) {
+    throw scenarioSourceError(
+      'PRICING_INCOMPLETE',
+      `算例输入不完整：服务端价目表缺少 ${missing.join('、')}（本层不回落本地配置、不估算）`,
+      { missing },
+    )
+  }
+
+  return {
+    plans,
+    scenario,
+    quota,
+    currency: source.currency,
+    isDemoPrice: source.isDemoPrice,
+    setupFee,
+    disclaimer: source.disclaimer,
+    strictPlan: true,
+  }
+}
+
+/** 按 planId 取档位：本地配置模式保持「未知档位回落首档」；服务端数据源模式下未知档位如实报错。 */
+function pickScenarioPlan(plans, planId, strict) {
+  const wanted = typeof planId === 'string' ? planId.trim() : ''
+  if (wanted !== '') {
+    const hit = plans.find((plan) => plan.planId === wanted)
+    if (hit) return hit
+    if (strict) {
+      throw scenarioSourceError('INVALID_ARGUMENT', `未知套餐档位：${wanted}（服务端价目表中不存在该 planId）`, { planId: wanted })
+    }
+  }
+  return plans[0]
+}
+
+/**
  * 典型场景算例（spec §8.2 A18）—— 纯函数，页面不得自行乘加。
  *
  * **v1.5 口径（Zang 终审 2026-09-19）**：
@@ -378,10 +487,11 @@ export function getPricingTable() {
  * 计次口径（spec §7.1）：批量检索按**请求**计，单请求返回 100 方仍为 1 次调用；
  * 高清原图**不**叠加调用次数（countOriginalAsCall=false），展示切片亦不计调用次数（R17c）。
  */
-export function computeScenario(input = {}) {
-  const plan = getPlanById(input.planId)
-  const scenario = PRICING.scenario
-  const quota = getOriginalQuotaPolicy()
+export function computeScenario(input = {}, source = null) {
+  const resolved = resolveScenarioSource(source)
+  const plan = pickScenarioPlan(resolved.plans, input.planId, resolved.strictPlan)
+  const scenario = resolved.scenario
+  const quota = resolved.quota
   const calls = toCount(input.calls ?? input.sessionsPerMonth, scenario.sessionsPerMonth)
   const sealsPerSession = toCount(input.sealsPerSession, scenario.sealsPerSession)
   const originalImages = toCount(
@@ -407,8 +517,8 @@ export function computeScenario(input = {}) {
   return {
     planId: plan.planId,
     planName: plan.name,
-    currency: PRICING.currency,
-    isDemoPrice: PRICING.isDemoPrice,
+    currency: resolved.currency,
+    isDemoPrice: resolved.isDemoPrice,
     inputs: { calls, sealsPerSession, originalImages, daysPerMonth },
     quotaTotalCalls,
     callsInQuota,
@@ -430,7 +540,7 @@ export function computeScenario(input = {}) {
     annualCents,
     /** 首年合计 = 年费 + 单月用量（不含一次性开通部署费）。 */
     totalFirstYearCents: annualCents + monthlyCents,
-    setupFee: { display: PRICING.setupFee.display, label: PRICING.setupFee.label },
+    setupFee: { display: resolved.setupFee.display, label: resolved.setupFee.label },
     lines: [
       {
         key: 'ANNUAL_FEE',
@@ -467,7 +577,7 @@ export function computeScenario(input = {}) {
         amountCents: originalImageCents,
       },
     ],
-    disclaimer: PRICING.disclaimer,
+    disclaimer: resolved.disclaimer,
   }
 }
 

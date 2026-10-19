@@ -13,9 +13,12 @@
  *     导出回 JSON 信封，CSV 在 `content`，下载由页面 Blob 触发）；
  *   · **A15 `getAccount`** —— `src/data/api/account.js`（`accountExists:false` ⇒ 如实 0，非错误）；
  *   · **A16 / A17 `getPlans` / `getPricingTable`** —— `src/data/api/plans.js`（单端点两段）；
+ *   · **A18 `computeScenario`** —— `src/data/api/plans.js`（**前端纯函数**：输入逐字取自
+ *     服务端下发的 `pricingTable`，复用 `@/config/pricing.js` 同一套算法在本地计算；
+ *     输入缺失 ⇒ `PRICING_INCOMPLETE`，不回落本地配置、不编数）；
  *   · **A24 `listLedgerEntries`** —— `src/data/api/ledger.js`（`collectionReady:false` ⇒ 如实空态）；
  *   · **A27 `getDisplaySlices`** —— 接 xiai 侧 TileSplicer 只读 API。
- * 其余方法（A18–A23 / A25–A26 / A28–A31）仍为「未接入」的明确失败 —— 本文件**绝不返回伪造数据**。
+ * 其余方法（A19–A23 / A25–A26 / A28–A31）仍为「未接入」的明确失败 —— 本文件**绝不返回伪造数据**。
  *
  * 边界（R-103 跨工程单向边界）：
  *   ① 只经 **HTTP 契约**消费 xiai（`/api/tilesplicer/v1`，经 yinsuo 自己的 Vite 代理转 127.0.0.1:5163）；
@@ -142,6 +145,9 @@ apiImpl.getAccount = (options) => accountAdapter.getAccount(options)
 
 apiImpl.getPlans = () => plansAdapter.getPlans()
 apiImpl.getPricingTable = () => plansAdapter.getPricingTable()
+
+/** A18 —— 前端纯函数（用服务端已下发的 `pricingTable` 作输入，本地计算；非端点）。 */
+apiImpl.computeScenario = (input) => plansAdapter.computeScenario(input)
 
 apiImpl.listLedgerEntries = (filter, page) => ledgerAdapter.listLedgerEntries(filter, page)
 

@@ -63,12 +63,14 @@
               <div class="cap-box" aria-hidden="true">DEMO<span>图形占位</span></div>
             </div>
             <p v-if="showError('captcha')" id="login-captcha-error" class="field-error" data-error-for="captcha">{{ errors.captcha }}</p>
-            <p v-else class="hint">图形验证码为占位（演示态），任意填写即可，仅作非空校验</p>
+            <p v-else-if="isMock" class="hint">图形验证码为占位（演示态），任意填写即可，仅作非空校验</p>
+            <p v-else class="hint">图形验证码为本地占位（服务端登录不校验验证码），任意填写即可，仅作非空校验</p>
           </div>
 
           <label class="checkline" for="login-remember">
             <input id="login-remember" v-model="form.remember" type="checkbox" />
-            <span>记住我（演示态：会话统一保存于本机浏览器会话，勾选与否不改变存储位置）</span>
+            <span v-if="isMock">记住我（演示态：会话统一保存于本机浏览器会话，勾选与否不改变存储位置）</span>
+            <span v-else>记住我（会话统一保存于本浏览器会话，勾选与否不改变存储位置）</span>
           </label>
 
           <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">

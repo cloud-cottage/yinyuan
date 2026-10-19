@@ -44,7 +44,7 @@
 
         <slot />
 
-        <div class="disclaimer" style="margin-top:24px;border-top:1px solid var(--line);padding-top:12px;">
+        <div v-if="disclaimer" class="disclaimer" style="margin-top:24px;border-top:1px solid var(--line);padding-top:12px;">
           {{ disclaimer }}
         </div>
       </section>
@@ -93,10 +93,22 @@ const planName = computed(() => {
 })
 
 const stateNote = computed(() => `数据状态：${isMock.value ? '演示数据' : '线上数据'}`)
-/** 声明条文案来自 A17（getPricingTable().disclaimer），不再直接 import PRICING。 */
-const disclaimer = computed(
-  () => table.data.value?.disclaimer || '本页金额、单价、用量数字均为界面示意值，非报价',
-)
+/**
+ * 声明条（按数据源分叉，与事实一致）：
+ *  · mock 模式：沿用 A17 原文（此处用量确为示意值）；A17 未取到时回落固定文案。
+ *  · api 模式：用量已是服务端真值 ⇒ **不得**声称「用量…示意值」，只保留价格「非报价」口径；
+ *    A17 未取到（加载中 / 失败）⇒ **整条省略**（返回空串，模板按 `v-if` 不渲染）——
+ *    绝不拿默认串冒充正常文案（否则会把 A17 失败伪装成正常态）。
+ */
+const MOCK_DISCLAIMER = '本页金额、单价、用量数字均为界面示意值，非报价'
+const disclaimer = computed(() => {
+  if (isMock.value) {
+    return table.data.value?.disclaimer || MOCK_DISCLAIMER
+  }
+  const tableData = table.data.value
+  if (!tableData) return ''
+  return tableData.isDemoPrice === true ? '本页金额与单价为演示价，非报价' : '本页金额与单价非报价'
+})
 
 const navItems = [
   { to: '/console/overview', label: '概览' },

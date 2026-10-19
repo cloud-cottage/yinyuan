@@ -155,7 +155,7 @@
       </span>
     </div>
 
-    <StateBlock :state="orders.state.value" empty-title="暂无订单" :error-text="ordersErrorText" @retry="loadAll">
+    <StateBlock :state="orders.state.value" empty-title="暂无订单" :error-title="ordersErrorTitle" :error-text="ordersErrorText" @retry="loadAll">
       <div v-if="orders.data.value" class="table-wrap">
         <table class="tbl">
           <thead>
@@ -388,6 +388,8 @@ const ledgerEmptyText = computed(() => (ledgerNotReady.value
 
 /** 充值订单读取失败面：接口模式下该面（A19–A23）本轮未接入 ⇒ 文案如实说明「未接入」，不写「读取失败」。 */
 const ordersErrorText = computed(() => (isMock ? '读取订单失败' : '充值订单暂未接入（本轮不含线上支付）'))
+/** 标题同口径：未实现不是「读失败」⇒ api 模式标题「暂未接入」（mock 保持原「读取失败」）。 */
+const ordersErrorTitle = computed(() => (isMock ? '读取失败' : '暂未接入'))
 
 /** 07-1：套餐档位名（服务端 `planName` 优先，其次 A17 档位表 + A15 的 planId，不硬编码）。 */
 const planName = computed(() => {
