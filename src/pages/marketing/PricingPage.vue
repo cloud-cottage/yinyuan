@@ -253,7 +253,7 @@
 
         <!-- 08-7 声明条 -->
         <p class="disclaimer" style="margin-top:20px;">
-          {{ table.data.value.disclaimer }} · 本页价格为演示价，非正式报价，可一句话整体替换。
+          {{ pageDisclaimer }} · 本页价格为演示价，非正式报价，可一句话整体替换。
         </p>
       </div>
     </StateBlock>
@@ -267,8 +267,8 @@ import EntryLink from '@/components/EntryLink.vue'
 import NoticeBar from '@/components/NoticeBar.vue'
 import SegmentedControl from '@/components/SegmentedControl.vue'
 import StateBlock from '@/components/StateBlock.vue'
-import { getPricingTable, computeScenario } from '@/data'
-import { formatCalls, formatCents } from '@/config/pricing.js'
+import { getPricingTable, computeScenario, RESOLVED_DATA_SOURCE } from '@/data'
+import { formatCalls, formatCents, stripDemoValueClaim } from '@/config/pricing.js'
 import { originalQuotaPolicyLabel } from '@/config/labels.js'
 import { useAsync } from '@/composables/useAsync.js'
 
@@ -293,6 +293,16 @@ const quotaPolicyLabel = computed(
 /** 两条算例的入参（口径① 免费额度内 / 口径② 超额）一律取自配置，页面不造数字。 */
 const examples = computed(() => table.data.value?.scenarioExamples || [])
 const overageLabel = computed(() => examples.value[1]?.label || '')
+
+/**
+ * 08-7 声明（按数据源分叉）：mock 沿用声明原文（此处数字确为示意值）；api 模式金额取自服务端
+ * ⇒ 对声明做「剔除示意值子句」处理（子句级剔除规则见 `stripDemoValueClaim`，非整句替换）。
+ */
+const isMock = RESOLVED_DATA_SOURCE === 'mock'
+const pageDisclaimer = computed(() => {
+  const raw = table.data.value?.disclaimer || ''
+  return isMock ? raw : stripDemoValueClaim(raw)
+})
 
 async function loadTable() {
   const data = await table.run()

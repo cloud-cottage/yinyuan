@@ -202,6 +202,7 @@ import EntryLink from '@/components/EntryLink.vue'
 import NoticeBar from '@/components/NoticeBar.vue'
 import SlicePreview from '@/components/SlicePreview.vue'
 import { getPricingTable, listSeals, RESOLVED_DATA_SOURCE } from '@/data'
+import { stripDemoValueClaim } from '@/config/pricing.js'
 import { DEMO_SOURCE_SHA256 } from '@/config/xiai-image-demo.js'
 import { useAsync } from '@/composables/useAsync.js'
 import { useAppConfig } from '@/composables/useAppConfig.js'
@@ -221,9 +222,12 @@ const pricing = useAsync(getPricingTable, { immediate: true })
 const scenarioText = computed(
   () => pricing.data.value?.scenarioText || '包量与场景数字读取中…',
 )
-const disclaimer = computed(
-  () => pricing.data.value?.disclaimer || '本页金额、单价、用量数字均为界面示意值，非报价',
-)
+/** 01-9 声明（按数据源分叉）：mock 沿用声明原文（未取到回落同级默认声明）；api 模式数字为服务端
+ * 真值 ⇒ 剔除「示意值」子句（子句级剔除规则见 `stripDemoValueClaim`），未取到时同样剔除回落串。 */
+const disclaimer = computed(() => {
+  const raw = pricing.data.value?.disclaimer || '本页金额、单价、用量数字均为界面示意值，非报价'
+  return RESOLVED_DATA_SOURCE === 'mock' ? raw : stripDemoValueClaim(raw)
+})
 const copyrightLine = computed(
   () => config.value?.site?.footerLine || '印源 © 2026 兆级玺印数字引擎｜文博玺印 API 图像服务平台',
 )

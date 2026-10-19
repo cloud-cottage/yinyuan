@@ -6,7 +6,7 @@
         假扫码支付仅用于演示四态闭环（待支付 / 成功 / 失败 / 超时）。
       </template>
       <template v-else>
-        <b>未接入真实支付通道</b> —— 账户余额与账期取自服务端（非示意值）；充值下单与扫码支付本轮仍未接入，
+        <b>未接入真实支付通道</b> —— 账户余额与账期取自服务端；充值下单与扫码支付本轮仍未接入，
         相关按钮会明确提示「未接入」，不会产生任何真实扣款。
       </template>
     </NoticeBar>
@@ -264,7 +264,8 @@
 
     <!-- ============ 07-8 声明条 ============ -->
     <NoticeBar variant="disclaimer" style="margin-top:22px;">
-      {{ disclaimerText }}（未接入支付渠道，所有金额为界面示意值）
+      <template v-if="isMock">{{ disclaimerText }}（未接入支付渠道，所有金额为界面示意值）</template>
+      <template v-else>{{ disclaimerText }}（未接入支付渠道）</template>
     </NoticeBar>
 
     <!-- ============ 07-4 假扫码弹层 ============ -->
@@ -498,8 +499,17 @@ const payDisabledHint = computed(() => {
   return ''
 })
 
-/** 07-8：声明与开票占位（开关位来自 A1，页面不硬编码开关态）。 */
-const disclaimerText = computed(() => tableData.value?.disclaimer || '本页金额、单价、用量数字均为界面示意值，非报价')
+/**
+ * 07-8：声明与开票占位（开关位来自 A1，页面不硬编码开关态）。声明按数据源分叉（与 ConsoleShell 页脚同法）：
+ * mock 沿用 A17 原文（未取到回落同级默认声明）；api 模式金额为服务端真值 ⇒ 不声称「界面示意值」，
+ * 只保留「非报价」口径（isDemoPrice 同一判据）；A17 未取到 ⇒ 空串，页尾保留「未接入支付渠道」如实提示。
+ */
+const MOCK_DISCLAIMER = '本页金额、单价、用量数字均为界面示意值，非报价'
+const disclaimerText = computed(() => {
+  if (isMock) return tableData.value?.disclaimer || MOCK_DISCLAIMER
+  if (!tableData.value) return ''
+  return tableData.value.isDemoPrice === true ? '本页金额与单价为演示价，非报价' : '本页金额与单价非报价'
+})
 const invoiceOpen = computed(() => config.data.value?.featureFlags?.invoiceEntryOpen === true)
 
 /** 结算说明文案（全部由配置插值，不在页面写字面口径）。 */

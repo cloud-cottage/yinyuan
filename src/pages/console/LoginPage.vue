@@ -85,7 +85,7 @@
           </div>
 
           <p v-if="demoSignInAvailable" class="hint" data-block="demo-account">
-            演示账号：<code class="mono">{{ demo.account }}</code>（演示态提供，仅用于界面演示）；
+            演示账号：<code class="mono">{{ demo.account }}</code><template v-if="isMock">（演示态提供，仅用于界面演示）</template><template v-else>（服务端预置账号）</template>；
             <template v-if="isMock">点击「{{ demo.buttonLabel }}」一次点击即完成登录并进入控制台；登录后如需手动试填，修改账号 / 密码再点「登录」即可</template>
             <template v-else>点击「{{ demo.buttonLabel }}」由服务端为该预置演示账号直接签发会话（无需填写上方表单，也不外发口令），一次点击即进入控制台</template>
           </p>

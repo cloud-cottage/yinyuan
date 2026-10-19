@@ -132,7 +132,7 @@
           <b>{{ formatCalls(summaryData.calls) }}</b>
           <div class="note">区间内全部请求，含失败请求</div>
           <div v-if="seededCallsInWindow > 0" class="note" data-block="seeded-calls">
-            其中示例数据 {{ formatCalls(seededCallsInWindow) }} 次 · 真实调用 {{ formatCalls(realCallsInWindow) }} 次
+            其中示例数据 {{ formatCalls(seededCallsInWindow) }} · 真实调用 {{ formatCalls(realCallsInWindow) }}
           </div>
         </div>
         <div class="kpi">

@@ -19,7 +19,8 @@
 import { computed } from 'vue'
 import EntryLink from '@/components/EntryLink.vue'
 import { useAppConfig } from '@/composables/useAppConfig.js'
-import { PRICING } from '@/config/pricing.js'
+import { RESOLVED_DATA_SOURCE } from '@/data'
+import { PRICING, stripDemoValueClaim } from '@/config/pricing.js'
 
 const { config } = useAppConfig()
 const site = computed(() => config.value?.site || {})
@@ -29,8 +30,10 @@ const taglineNote = computed(
     config.value?.site?.taglineNote ||
     '兆级＝百万级（10 的 6 次方）：本站「兆级」采用现代工程口径，指百万级；不是古籍大数体系里「万亿」的「兆」。',
 )
-/** 全站声明文案的唯一来源（spec §1.6 全局声明条 / §4.3）。 */
-const disclaimer = PRICING.disclaimer
+/** 全站声明文案的唯一来源（spec §1.6 全局声明条 / §4.3）；按数据源分叉：mock 沿用原文，
+ * api 模式数字为服务端真值 ⇒ 剔除「示意值」子句（子句级剔除规则见 `stripDemoValueClaim`）。 */
+const isMock = RESOLVED_DATA_SOURCE === 'mock'
+const disclaimer = computed(() => (isMock ? PRICING.disclaimer : stripDemoValueClaim(PRICING.disclaimer)))
 
 const links = [
   { to: '/pricing', label: '计费规则' },

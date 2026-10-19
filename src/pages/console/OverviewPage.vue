@@ -6,8 +6,8 @@
 
     <!-- 示例数据声明（仅在**统计里确实含示例记录**时出现；示例量永不并入真实调用量） -->
     <NoticeBar v-if="monthSeededCalls > 0" variant="status" data-block="seeded-notice">
-      <b>用量含示例数据</b> —— 本月共 {{ formatCalls(monthSeededCalls) }} 次调用为演示预置的<b>示例记录</b>（非真实调用），
-      真实调用 {{ formatCalls(monthRealCalls) }} 次；两者在上方 KPI 与下方图表中分别标注，示例数据不计入真实调用量。
+      <b>用量含示例数据</b> —— 本月共 {{ formatCalls(monthSeededCalls) }}调用为演示预置的<b>示例记录</b>（非真实调用），
+      真实调用 {{ formatCalls(monthRealCalls) }}；两者在上方 KPI 与下方图表中分别标注，示例数据不计入真实调用量。
     </NoticeBar>
 
     <!-- ===================== KPI 卡 ×4 ===================== -->
@@ -27,7 +27,7 @@
           <b>{{ formatCalls(acct.quotaUsedCalls) }}<em>/ 包量 {{ formatCalls(acct.quotaTotalCalls) }}</em></b>
           <div class="note">{{ acct.monthKey }}（CST）· 余 {{ formatCalls(acct.quotaRemainCalls) }}</div>
           <div v-if="monthSeededCalls > 0" class="note" data-block="seeded-calls">
-            其中示例数据 {{ formatCalls(monthSeededCalls) }} 次 · 真实调用 {{ formatCalls(monthRealCalls) }} 次
+            其中示例数据 {{ formatCalls(monthSeededCalls) }} · 真实调用 {{ formatCalls(monthRealCalls) }}
           </div>
         </div>
 
@@ -302,7 +302,7 @@
 
     <!-- ===================== 声明条 ===================== -->
     <NoticeBar variant="status" style="margin-top:22px;">
-      <b>声明</b> —— {{ disclaimer }}；本页数字均来自统一数据源（无页面硬编码），
+      <b>声明</b> —— <template v-if="disclaimer">{{ disclaimer }}；</template>本页数字均来自统一数据源（无页面硬编码），
       时间均为北京时间（CST）；展示切片为辅助防护手段，无法阻止专业爬虫抓取切片后拼接，
       原图访问权限完全由后端鉴权控制（CDN 签名 URL + 账号额度）。
     </NoticeBar>
@@ -591,14 +591,26 @@ async function exportCsv() {
   }
 }
 
-/** 04-9 声明条文案：首选 A17 `getPricingTable().disclaimer`（唯一配置源），失败时回落同级默认声明。 */
+/**
+ * 04-9 声明条文案（按数据源分叉，与 ConsoleShell 页脚同法，两态都与事实一致）：
+ *  · mock 模式：沿用 A17 `getPricingTable().disclaimer` 原文（此处用量确为示意值），未取到时回落同级默认声明；
+ *  · api 模式：金额与用量已是服务端真值 ⇒ **不得**声称「界面示意值」，只保留「非报价」口径
+ *    （isDemoPrice 与 ConsoleShell 同一判据）；A17 未取到（加载中 / 失败）⇒ 返回空串，
+ *    模板按 `v-if` 省略该句 —— 绝不拿默认串冒充正常文案。
+ */
 const DEFAULT_DISCLAIMER = '本页金额、单价、用量数字均为界面示意值，非报价'
-const disclaimer = ref(DEFAULT_DISCLAIMER)
+const pricingTable = ref(null)
+const disclaimer = computed(() => {
+  if (isMock) return pricingTable.value?.disclaimer || DEFAULT_DISCLAIMER
+  const tableData = pricingTable.value
+  if (!tableData) return ''
+  return tableData.isDemoPrice === true ? '本页金额与单价为演示价，非报价' : '本页金额与单价非报价'
+})
 
 onMounted(async () => {
   // 声明文案与数据同源（A17），读取失败不阻塞主流程
   getPricingTable()
-    .then((table) => { if (table?.disclaimer) disclaimer.value = table.disclaimer })
+    .then((table) => { pricingTable.value = table })
     .catch(() => {})
   await load()
   // 一次性提示：展示后即从网址移除标记，刷新 / 回退不重复提示。
